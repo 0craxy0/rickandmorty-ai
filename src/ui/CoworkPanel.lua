@@ -120,7 +120,7 @@ function CoworkPanel.new(parent, app)
 	end
 
 	function panel:log(text, kind)
-		console:Append(text, kind)
+		console:append(text, kind)
 	end
 
 	function panel:generate()

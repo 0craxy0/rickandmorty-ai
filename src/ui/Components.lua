@@ -100,21 +100,38 @@ function Components.label(props)
 	return Fonts.new("TextLabel", props.Role or "body", config)
 end
 
---- Small uppercase chip used for provider/model metadata.
+-- Styling-only keys that must never be assigned to the Instance itself.
+local BADGE_RESERVED = {
+	Color = true,
+	Text = true,
+}
+
+--[[
+	Small uppercase chip used for provider/model metadata.
+	Returns a controller table: { frame, label, setText(text), setColor(color) }
+]]
 function Components.badge(props)
 	props = props or {}
-	local container = Util.create("Frame", {
+
+	local config = {
 		Name = "Badge",
 		BackgroundColor3 = Palette.surfaces.card,
 		BorderSizePixel = 0,
 		AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 0, 22),
-		LayoutOrder = props.LayoutOrder,
-		Parent = props.Parent,
-	})
+	}
 
+	for key, value in pairs(props) do
+		if not BADGE_RESERVED[key] then
+			config[key] = value
+		end
+	end
+
+	local container = Util.create("Frame", config)
 	Util.corner(999).Parent = container
-	Util.stroke(props.Color or Palette.surfaces.border, 1, 0.3).Parent = container
+
+	local stroke = Util.stroke(props.Color or Palette.surfaces.border, 1, 0.3)
+	stroke.Parent = container
 	Util.padding(0, 10, 0, 10).Parent = container
 
 	local label = Fonts.new("TextLabel", "small", {
@@ -130,8 +147,21 @@ function Components.badge(props)
 		Parent = container,
 	})
 
-	container.TextLabel = label
-	return container
+	local badge = {
+		frame = container,
+		label = label,
+	}
+
+	function badge:setText(text)
+		label.Text = text
+	end
+
+	function badge:setColor(color)
+		label.TextColor3 = color
+		stroke.Color = color
+	end
+
+	return badge
 end
 
 -- Buttons ---------------------------------------------------------------------
@@ -368,8 +398,8 @@ end
 		Size, Parent, LayoutOrder, Placeholder
 	}
 
-	Returns the container Frame with two attached methods:
-		container:SetValue(id)  container:GetValue()
+	Returns a controller table:
+		{ frame, toggleButton, list, setValue(id), getValue() }
 ]]
 function Components.dropdown(props)
 	props = props or {}
@@ -505,19 +535,22 @@ function Components.dropdown(props)
 		end
 	end)
 
+	local dropdown = {
+		frame = container,
+		toggleButton = toggle,
+		list = list,
+	}
+
 	--- Programmatic value sync; does not fire OnSelect.
-	function container:SetValue(id)
+	function dropdown:setValue(id)
 		select(id, true)
 	end
 
-	function container:GetValue()
+	function dropdown:getValue()
 		return value
 	end
 
-	container.Toggle = toggle
-	container.List = list
-
-	return container
+	return dropdown
 end
 
 -- Tabs ------------------------------------------------------------------------
@@ -525,7 +558,7 @@ end
 --[[
 	props = { Items = { { id, label } }, Value, OnSelect, Parent, Size, LayoutOrder }
 
-	Returns the container Frame with container:SetActive(id).
+	Returns a controller table: { frame, buttons, setActive(id), getActive() }
 ]]
 function Components.tabs(props)
 	props = props or {}
@@ -593,18 +626,23 @@ function Components.tabs(props)
 		table.insert(buttons, { id = item.id, button = button, marker = marker })
 	end
 
-	function container:SetActive(id)
+	local tabs = {
+		frame = container,
+		buttons = buttons,
+	}
+
+	function tabs:setActive(id)
 		active = id
 		apply(id)
 	end
 
-	function container:GetActive()
+	function tabs:getActive()
 		return active
 	end
 
 	apply(active)
 
-	return container
+	return tabs
 end
 
 -- Small helpers ---------------------------------------------------------------
@@ -627,6 +665,7 @@ function Components.dot(props)
 end
 
 --- Multi-line read-only output console for the Code / Cowork panes.
+--- Returns a controller table: { frame, scroll, lines, append(text, kind), clear() }
 function Components.console(props)
 	props = props or {}
 
@@ -651,8 +690,11 @@ function Components.console(props)
 		Parent = frame,
 	})
 
-	frame.Scroll = scroll
-	frame.Lines = {}
+	local console = {
+		frame = frame,
+		scroll = scroll,
+		lines = {},
+	}
 
 	local paletteText = {
 		ok = Palette.neon.green,
@@ -663,7 +705,7 @@ function Components.console(props)
 	}
 
 	--- Appends a line; `kind` picks the colour scheme.
-	function frame:Append(text, kind)
+	function console:append(text, kind)
 		local color = paletteText[kind or "info"] or Palette.text.primary
 
 		local line = Fonts.new("TextLabel", "log", {
@@ -674,26 +716,26 @@ function Components.console(props)
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			TextWrapped = true,
-			LayoutOrder = #self.Lines + 1,
-			Parent = self.Scroll,
+			LayoutOrder = #console.lines + 1,
+			Parent = scroll,
 		})
 
-		table.insert(self.Lines, line)
+		table.insert(console.lines, line)
 		task.defer(function()
-			if self.Scroll then
-				self.Scroll.CanvasPosition = Vector2.new(0, math.max(0, self.Scroll.AbsoluteCanvasSize.Y))
+			if scroll and scroll.Parent then
+				scroll.CanvasPosition = Vector2.new(0, math.max(0, scroll.AbsoluteCanvasSize.Y))
 			end
 		end)
 
 		return line
 	end
 
-	function frame:Clear()
-		Util.clear(self.Scroll)
-		self.Lines = {}
+	function console:clear()
+		Util.clear(scroll)
+		console.lines = {}
 	end
 
-	return frame
+	return console
 end
 
 return Components

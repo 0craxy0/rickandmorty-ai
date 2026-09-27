@@ -2889,9 +2889,8 @@ function ChatPanel.new(parent, app)
 	end
 
 	function panel:refresh()
-		companionBadge.TextLabel.Text = string.upper(State.companion())
-		providerBadge.TextLabel.Text = State.provider()
-		providerBadge.TextLabel.TextColor3 = Palette.neon.cyan
+		companionBadge:setText(string.upper(State.companion()))
+		providerBadge:setText(State.provider())
 	end
 
 	function panel:focusInput()
@@ -3084,9 +3083,9 @@ function CodePanel.new(parent, app)
 		Parent = frame,
 	})
 
-	console.Position = UDim2.new(0, 12, 1, -1)
-	console.AnchorPoint = Vector2.new(0, 1)
-	console.Size = UDim2.new(1, -24, 0.45, -60)
+	console.frame.Position = UDim2.new(0, 12, 1, -1)
+	console.frame.AnchorPoint = Vector2.new(0, 1)
+	console.frame.Size = UDim2.new(1, -24, 0.45, -60)
 
 	-- Actions -----------------------------------------------------------------
 
@@ -3104,7 +3103,7 @@ function CodePanel.new(parent, app)
 	end
 
 	function panel:log(text, kind)
-		console:Append(text, kind)
+		console:append(text, kind)
 	end
 
 	function panel:setSource(text)
@@ -3117,7 +3116,7 @@ function CodePanel.new(parent, app)
 	end
 
 	function panel:clearConsole()
-		console:Clear()
+		console:clear()
 		panel:setStatus("console cleared")
 	end
 
@@ -3327,14 +3326,17 @@ function Companion.create(parent, props)
 		end)
 	end
 
-	frame.Portrait = portrait
-	frame.Stroke = stroke
-	frame.Plate = plate
+	local companion = {
+		frame = frame,
+		portrait = portrait,
+		stroke = stroke,
+		plate = plate,
+	}
 
 	--- Morphs this overlay onto another companion profile.
-	function frame:SetCharacter(companionName2)
-		local nextTheme = Palette.character(companionName2)
-		portrait.Image = Assets.portrait(companionName2)
+	function companion:setCharacter(name)
+		local nextTheme = Palette.character(name)
+		portrait.Image = Assets.portrait(name)
 		stroke.Color = nextTheme.glow
 		if plate then
 			plate.Text = string.upper(nextTheme.name)
@@ -3342,7 +3344,11 @@ function Companion.create(parent, props)
 		end
 	end
 
-	return frame
+	function companion:destroy()
+		frame:Destroy()
+	end
+
+	return companion
 end
 
 --- Bigger framed portrait used by the onboarding guide.
@@ -3354,7 +3360,7 @@ function Companion.guide(parent, companionName, props)
 	props.ShowPlate = true
 	props.ZIndex = props.ZIndex or 6
 
-	local frame = Companion.create(parent, props)
+	local companion = Companion.create(parent, props)
 
 	-- A soft glow ring keeps the guide visually anchored to the dialogue box.
 	local glow = Util.create("Frame", {
@@ -3366,11 +3372,11 @@ function Companion.guide(parent, companionName, props)
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		ZIndex = (props.ZIndex or 6) - 1,
-		Parent = frame,
+		Parent = companion.frame,
 	})
 	Util.corner(999).Parent = glow
 
-	return frame
+	return companion
 end
 
 return Companion
@@ -3479,21 +3485,38 @@ function Components.label(props)
 	return Fonts.new("TextLabel", props.Role or "body", config)
 end
 
---- Small uppercase chip used for provider/model metadata.
+-- Styling-only keys that must never be assigned to the Instance itself.
+local BADGE_RESERVED = {
+	Color = true,
+	Text = true,
+}
+
+--[[
+	Small uppercase chip used for provider/model metadata.
+	Returns a controller table: { frame, label, setText(text), setColor(color) }
+]]
 function Components.badge(props)
 	props = props or {}
-	local container = Util.create("Frame", {
+
+	local config = {
 		Name = "Badge",
 		BackgroundColor3 = Palette.surfaces.card,
 		BorderSizePixel = 0,
 		AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 0, 22),
-		LayoutOrder = props.LayoutOrder,
-		Parent = props.Parent,
-	})
+	}
 
+	for key, value in pairs(props) do
+		if not BADGE_RESERVED[key] then
+			config[key] = value
+		end
+	end
+
+	local container = Util.create("Frame", config)
 	Util.corner(999).Parent = container
-	Util.stroke(props.Color or Palette.surfaces.border, 1, 0.3).Parent = container
+
+	local stroke = Util.stroke(props.Color or Palette.surfaces.border, 1, 0.3)
+	stroke.Parent = container
 	Util.padding(0, 10, 0, 10).Parent = container
 
 	local label = Fonts.new("TextLabel", "small", {
@@ -3509,8 +3532,21 @@ function Components.badge(props)
 		Parent = container,
 	})
 
-	container.TextLabel = label
-	return container
+	local badge = {
+		frame = container,
+		label = label,
+	}
+
+	function badge:setText(text)
+		label.Text = text
+	end
+
+	function badge:setColor(color)
+		label.TextColor3 = color
+		stroke.Color = color
+	end
+
+	return badge
 end
 
 -- Buttons ---------------------------------------------------------------------
@@ -3747,8 +3783,8 @@ end
 		Size, Parent, LayoutOrder, Placeholder
 	}
 
-	Returns the container Frame with two attached methods:
-		container:SetValue(id)  container:GetValue()
+	Returns a controller table:
+		{ frame, toggleButton, list, setValue(id), getValue() }
 ]]
 function Components.dropdown(props)
 	props = props or {}
@@ -3884,19 +3920,22 @@ function Components.dropdown(props)
 		end
 	end)
 
+	local dropdown = {
+		frame = container,
+		toggleButton = toggle,
+		list = list,
+	}
+
 	--- Programmatic value sync; does not fire OnSelect.
-	function container:SetValue(id)
+	function dropdown:setValue(id)
 		select(id, true)
 	end
 
-	function container:GetValue()
+	function dropdown:getValue()
 		return value
 	end
 
-	container.Toggle = toggle
-	container.List = list
-
-	return container
+	return dropdown
 end
 
 -- Tabs ------------------------------------------------------------------------
@@ -3904,7 +3943,7 @@ end
 --[[
 	props = { Items = { { id, label } }, Value, OnSelect, Parent, Size, LayoutOrder }
 
-	Returns the container Frame with container:SetActive(id).
+	Returns a controller table: { frame, buttons, setActive(id), getActive() }
 ]]
 function Components.tabs(props)
 	props = props or {}
@@ -3972,18 +4011,23 @@ function Components.tabs(props)
 		table.insert(buttons, { id = item.id, button = button, marker = marker })
 	end
 
-	function container:SetActive(id)
+	local tabs = {
+		frame = container,
+		buttons = buttons,
+	}
+
+	function tabs:setActive(id)
 		active = id
 		apply(id)
 	end
 
-	function container:GetActive()
+	function tabs:getActive()
 		return active
 	end
 
 	apply(active)
 
-	return container
+	return tabs
 end
 
 -- Small helpers ---------------------------------------------------------------
@@ -4006,6 +4050,7 @@ function Components.dot(props)
 end
 
 --- Multi-line read-only output console for the Code / Cowork panes.
+--- Returns a controller table: { frame, scroll, lines, append(text, kind), clear() }
 function Components.console(props)
 	props = props or {}
 
@@ -4030,8 +4075,11 @@ function Components.console(props)
 		Parent = frame,
 	})
 
-	frame.Scroll = scroll
-	frame.Lines = {}
+	local console = {
+		frame = frame,
+		scroll = scroll,
+		lines = {},
+	}
 
 	local paletteText = {
 		ok = Palette.neon.green,
@@ -4042,7 +4090,7 @@ function Components.console(props)
 	}
 
 	--- Appends a line; `kind` picks the colour scheme.
-	function frame:Append(text, kind)
+	function console:append(text, kind)
 		local color = paletteText[kind or "info"] or Palette.text.primary
 
 		local line = Fonts.new("TextLabel", "log", {
@@ -4053,26 +4101,26 @@ function Components.console(props)
 			Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			TextWrapped = true,
-			LayoutOrder = #self.Lines + 1,
-			Parent = self.Scroll,
+			LayoutOrder = #console.lines + 1,
+			Parent = scroll,
 		})
 
-		table.insert(self.Lines, line)
+		table.insert(console.lines, line)
 		task.defer(function()
-			if self.Scroll then
-				self.Scroll.CanvasPosition = Vector2.new(0, math.max(0, self.Scroll.AbsoluteCanvasSize.Y))
+			if scroll and scroll.Parent then
+				scroll.CanvasPosition = Vector2.new(0, math.max(0, scroll.AbsoluteCanvasSize.Y))
 			end
 		end)
 
 		return line
 	end
 
-	function frame:Clear()
-		Util.clear(self.Scroll)
-		self.Lines = {}
+	function console:clear()
+		Util.clear(scroll)
+		console.lines = {}
 	end
 
-	return frame
+	return console
 end
 
 return Components
@@ -4201,7 +4249,7 @@ function CoworkPanel.new(parent, app)
 	end
 
 	function panel:log(text, kind)
-		console:Append(text, kind)
+		console:append(text, kind)
 	end
 
 	function panel:generate()
@@ -4317,6 +4365,12 @@ Dashboard.TABS = {
 }
 
 function Dashboard.new(gui, app)
+	-- Forward declaration. The tabs and header buttons below capture `dashboard`
+	-- in their callbacks, so it must already be a local here: declaring it later
+	-- would leave those closures reading a global instead, and every click would
+	-- throw "attempt to index a nil value (global 'dashboard')".
+	local dashboard
+
 	-- Root (no dimming layer) --------------------------------------------------
 
 	local root = Util.create("Frame", {
@@ -4644,7 +4698,7 @@ function Dashboard.new(gui, app)
 
 	-- API ---------------------------------------------------------------------
 
-	local dashboard = {
+	dashboard = {
 		root = root,
 		window = window,
 		header = header,
@@ -4676,7 +4730,7 @@ function Dashboard.new(gui, app)
 			panel.frame.Visible = panelId == resolved
 		end
 
-		tabs:SetActive(resolved)
+		tabs:setActive(resolved)
 		self.activeTab = resolved
 
 		local panel = panels[resolved]
@@ -4698,9 +4752,9 @@ function Dashboard.new(gui, app)
 	end
 
 	function dashboard:refresh()
-		companionBadge.TextLabel.Text = string.upper(State.companion())
-		providerBadge.TextLabel.Text = State.provider()
-		companion:SetCharacter(State.companion())
+		companionBadge:setText(string.upper(State.companion()))
+		providerBadge:setText(State.provider())
+		companion:setCharacter(State.companion())
 		anchorPortrait.Image = Assets.portrait(State.companion())
 		sidebar:refresh()
 		panels.Chat:refresh()
@@ -5161,7 +5215,7 @@ function QuickMenu.new(gui, app)
 
 	local function mountPortrait()
 		if portrait then
-			portrait:Destroy()
+			portrait:destroy()
 		end
 
 		portrait = Companion.create(companionHolder, {
@@ -5195,7 +5249,7 @@ function QuickMenu.new(gui, app)
 
 		self.isOpen = true
 		mountPortrait()
-		providerBadge.TextLabel.Text = State.provider()
+		providerBadge:setText(State.provider())
 		overlay.Visible = true
 		sinkMovement(true)
 
@@ -5652,7 +5706,7 @@ function Sidebar.new(parent, app)
 	end
 
 	function sidebar:refresh()
-		sidebar.providerDropdown:SetValue(State.provider())
+		sidebar.providerDropdown:setValue(State.provider())
 		providerHint.Text = Providers.get(State.provider()).description
 		keyInput.Text = State.apiKey(State.provider())
 		keyInput.PlaceholderText = Providers.get(State.provider()).keyLabel
@@ -5917,7 +5971,7 @@ function Tutorial.start(gui, app, onFinish)
 
 	local function mountPortrait(companion)
 		if guidePortrait then
-			guidePortrait:Destroy()
+			guidePortrait:destroy()
 		end
 
 		guidePortrait = Companion.guide(portraitHolder, companion, {
@@ -6120,7 +6174,8 @@ function Tutorial.start(gui, app, onFinish)
 	table.insert(steps, {
 		key = "provider",
 		target = function()
-			return app.sidebar and app.sidebar.providerDropdown.Toggle
+			local sidebar = app.sidebar
+			return sidebar and sidebar.providerDropdown.toggleButton or nil
 		end,
 	})
 
@@ -6132,7 +6187,8 @@ function Tutorial.start(gui, app, onFinish)
 			end
 		end,
 		target = function()
-			return app.dashboard and app.dashboard.tabs
+			local dashboard = app.dashboard
+			return dashboard and dashboard.tabs.frame or nil
 		end,
 	})
 

@@ -32,6 +32,12 @@ Dashboard.TABS = {
 }
 
 function Dashboard.new(gui, app)
+	-- Forward declaration. The tabs and header buttons below capture `dashboard`
+	-- in their callbacks, so it must already be a local here: declaring it later
+	-- would leave those closures reading a global instead, and every click would
+	-- throw "attempt to index a nil value (global 'dashboard')".
+	local dashboard
+
 	-- Root (no dimming layer) --------------------------------------------------
 
 	local root = Util.create("Frame", {
@@ -359,7 +365,7 @@ function Dashboard.new(gui, app)
 
 	-- API ---------------------------------------------------------------------
 
-	local dashboard = {
+	dashboard = {
 		root = root,
 		window = window,
 		header = header,
@@ -391,7 +397,7 @@ function Dashboard.new(gui, app)
 			panel.frame.Visible = panelId == resolved
 		end
 
-		tabs:SetActive(resolved)
+		tabs:setActive(resolved)
 		self.activeTab = resolved
 
 		local panel = panels[resolved]
@@ -413,9 +419,9 @@ function Dashboard.new(gui, app)
 	end
 
 	function dashboard:refresh()
-		companionBadge.TextLabel.Text = string.upper(State.companion())
-		providerBadge.TextLabel.Text = State.provider()
-		companion:SetCharacter(State.companion())
+		companionBadge:setText(string.upper(State.companion()))
+		providerBadge:setText(State.provider())
+		companion:setCharacter(State.companion())
 		anchorPortrait.Image = Assets.portrait(State.companion())
 		sidebar:refresh()
 		panels.Chat:refresh()

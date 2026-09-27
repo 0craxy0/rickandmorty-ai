@@ -136,9 +136,9 @@ function CodePanel.new(parent, app)
 		Parent = frame,
 	})
 
-	console.Position = UDim2.new(0, 12, 1, -1)
-	console.AnchorPoint = Vector2.new(0, 1)
-	console.Size = UDim2.new(1, -24, 0.45, -60)
+	console.frame.Position = UDim2.new(0, 12, 1, -1)
+	console.frame.AnchorPoint = Vector2.new(0, 1)
+	console.frame.Size = UDim2.new(1, -24, 0.45, -60)
 
 	-- Actions -----------------------------------------------------------------
 
@@ -156,7 +156,7 @@ function CodePanel.new(parent, app)
 	end
 
 	function panel:log(text, kind)
-		console:Append(text, kind)
+		console:append(text, kind)
 	end
 
 	function panel:setSource(text)
@@ -169,7 +169,7 @@ function CodePanel.new(parent, app)
 	end
 
 	function panel:clearConsole()
-		console:Clear()
+		console:clear()
 		panel:setStatus("console cleared")
 	end
 

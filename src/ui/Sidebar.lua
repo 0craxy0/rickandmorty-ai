@@ -328,7 +328,7 @@ function Sidebar.new(parent, app)
 	end
 
 	function sidebar:refresh()
-		sidebar.providerDropdown:SetValue(State.provider())
+		sidebar.providerDropdown:setValue(State.provider())
 		providerHint.Text = Providers.get(State.provider()).description
 		keyInput.Text = State.apiKey(State.provider())
 		keyInput.PlaceholderText = Providers.get(State.provider()).keyLabel

@@ -153,7 +153,7 @@ function QuickMenu.new(gui, app)
 
 	local function mountPortrait()
 		if portrait then
-			portrait:Destroy()
+			portrait:destroy()
 		end
 
 		portrait = Companion.create(companionHolder, {
@@ -187,7 +187,7 @@ function QuickMenu.new(gui, app)
 
 		self.isOpen = true
 		mountPortrait()
-		providerBadge.TextLabel.Text = State.provider()
+		providerBadge:setText(State.provider())
 		overlay.Visible = true
 		sinkMovement(true)
 

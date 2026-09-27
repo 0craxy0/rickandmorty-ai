@@ -11,6 +11,10 @@
   "homepage": "https://github.com/0craxy0/rickandmorty-ai#readme",
   "scripts": {
     "build": "node build.js",
-    "check": "node build.js --check"
+    "check": "node build.js --check",
+    "test": "node test/smoke.js"
+  },
+  "devDependencies": {
+    "fengari": "^0.1.5"
   }
 }

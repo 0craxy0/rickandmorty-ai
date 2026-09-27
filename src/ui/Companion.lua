@@ -105,14 +105,17 @@ function Companion.create(parent, props)
 		end)
 	end
 
-	frame.Portrait = portrait
-	frame.Stroke = stroke
-	frame.Plate = plate
+	local companion = {
+		frame = frame,
+		portrait = portrait,
+		stroke = stroke,
+		plate = plate,
+	}
 
 	--- Morphs this overlay onto another companion profile.
-	function frame:SetCharacter(companionName2)
-		local nextTheme = Palette.character(companionName2)
-		portrait.Image = Assets.portrait(companionName2)
+	function companion:setCharacter(name)
+		local nextTheme = Palette.character(name)
+		portrait.Image = Assets.portrait(name)
 		stroke.Color = nextTheme.glow
 		if plate then
 			plate.Text = string.upper(nextTheme.name)
@@ -120,7 +123,11 @@ function Companion.create(parent, props)
 		end
 	end
 
-	return frame
+	function companion:destroy()
+		frame:Destroy()
+	end
+
+	return companion
 end
 
 --- Bigger framed portrait used by the onboarding guide.
@@ -132,7 +139,7 @@ function Companion.guide(parent, companionName, props)
 	props.ShowPlate = true
 	props.ZIndex = props.ZIndex or 6
 
-	local frame = Companion.create(parent, props)
+	local companion = Companion.create(parent, props)
 
 	-- A soft glow ring keeps the guide visually anchored to the dialogue box.
 	local glow = Util.create("Frame", {
@@ -144,11 +151,11 @@ function Companion.guide(parent, companionName, props)
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		ZIndex = (props.ZIndex or 6) - 1,
-		Parent = frame,
+		Parent = companion.frame,
 	})
 	Util.corner(999).Parent = glow
 
-	return frame
+	return companion
 end
 
 return Companion

@@ -47,6 +47,7 @@ src/                 Luau source, one module per concern
                      ChatPanel, CoworkPanel, CodePanel, Tutorial, Dashboard
 bridge/              Cowork payload (Node server + external interface)
 build.js             validator + single-file bundler
+test/                headless smoke test (Roblox stubbed, runs the real bundle)
 dist/                generated rick-morty-executor.lua + install.lua one-liner
 ```
 
@@ -120,14 +121,16 @@ Double-click the launcher and the interface opens on
 `http://localhost:7896`. Because requests originate from Node, Roblox's HTTP
 domain whitelist no longer applies.
 
-## Building
+## Building and testing
 
 ```bash
+npm install     # dev dependency for the smoke test only (fengari)
 npm run check   # validate modules only
 npm run build   # validate + emit dist/rick-morty-executor.lua
+npm test        # execute the built bundle against a stubbed Roblox environment
 ```
 
-`build.js` is dependency-free and does three things:
+`build.js` itself is dependency-free and does four things:
 
 1. **Validates** every module — block/bracket balance via a Luau tokenizer
    (comment and string aware), accidental-global detection (`function foo()`
@@ -141,6 +144,20 @@ npm run build   # validate + emit dist/rick-morty-executor.lua
    rewrites the install block in this README between its `BEGIN:INSTALL` /
    `END:INSTALL` markers. `npm run check` warns when that block has drifted
    instead of rewriting it, so CI can catch a URL that was never rebuilt.
+
+### Headless smoke test
+
+`npm test` loads the built bundle into a real Lua VM (fengari) with the Roblox
+API stubbed by `test/stub.lua`, boots the app and drives it: badge rendering, tab
+switching, console logging, the quick menu (including movement-key sinking), a
+companion switch, the entire onboarding tour and unload.
+
+The stub raises the same error Roblox does for any member that is not a real
+property, so a mistake like attaching a helper field to an Instance
+(`frame.TextLabel = label` throws *"TextLabel is not a valid member of Frame"*)
+fails the test rather than failing in game. Because the project is Luau, compound
+assignments are rewritten to their Lua 5.3 equivalent for the test run only; the
+shipped bundle is untouched.
 
 ## Notes and limits
 

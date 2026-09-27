@@ -342,9 +342,8 @@ function ChatPanel.new(parent, app)
 	end
 
 	function panel:refresh()
-		companionBadge.TextLabel.Text = string.upper(State.companion())
-		providerBadge.TextLabel.Text = State.provider()
-		providerBadge.TextLabel.TextColor3 = Palette.neon.cyan
+		companionBadge:setText(string.upper(State.companion()))
+		providerBadge:setText(State.provider())
 	end
 
 	function panel:focusInput()

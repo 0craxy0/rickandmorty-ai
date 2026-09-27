@@ -227,7 +227,7 @@ function Tutorial.start(gui, app, onFinish)
 
 	local function mountPortrait(companion)
 		if guidePortrait then
-			guidePortrait:Destroy()
+			guidePortrait:destroy()
 		end
 
 		guidePortrait = Companion.guide(portraitHolder, companion, {
@@ -430,7 +430,8 @@ function Tutorial.start(gui, app, onFinish)
 	table.insert(steps, {
 		key = "provider",
 		target = function()
-			return app.sidebar and app.sidebar.providerDropdown.Toggle
+			local sidebar = app.sidebar
+			return sidebar and sidebar.providerDropdown.toggleButton or nil
 		end,
 	})
 
@@ -442,7 +443,8 @@ function Tutorial.start(gui, app, onFinish)
 			end
 		end,
 		target = function()
-			return app.dashboard and app.dashboard.tabs
+			local dashboard = app.dashboard
+			return dashboard and dashboard.tabs.frame or nil
 		end,
 	})
 
