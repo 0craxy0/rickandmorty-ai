@@ -60,20 +60,26 @@ function ChatPanel.new(parent, app)
 		Parent = header,
 	})
 
-	-- Fixed offset width: a scale-width child inside a horizontal UIListLayout
-	-- would stretch and shove the trailing buttons off the row.
+	-- Sized to its own text (capped at 180) rather than claiming a fixed 180: a
+	-- reserved width that the text rarely uses was enough to push this row past
+	-- the header on a small viewport. A scale width is not an option here - it
+	-- would stretch inside the horizontal UIListLayout and shove the buttons out.
 	local status = Fonts.new("TextLabel", "small", {
 		Name = "Status",
 		Text = "ready",
 		TextColor3 = Palette.text.dim,
 		TextSize = 11,
 		BackgroundTransparency = 1,
-		Size = UDim2.new(0, 180, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		TextYAlignment = Enum.TextYAlignment.Center,
 		LayoutOrder = 3,
 		Parent = header,
 	})
+
+	Util.create("UISizeConstraint", { MaxSize = Vector2.new(180, 1000), Parent = status })
 
 	Components.button({
 		Name = "Reset",

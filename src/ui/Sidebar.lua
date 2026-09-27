@@ -20,6 +20,21 @@ local Sidebar = {}
 
 Sidebar.WIDTH = 252
 
+-- The rail narrows on small viewports. At 800x600 a 252px rail leaves the
+-- workspace ~440px, which is less than one toolbar row (buttons + status) needs.
+Sidebar.COMPACT_WIDTH = 200
+Sidebar.COMPACT_BELOW = 1100
+
+--- Rail width for a viewport, so the workspace can be sized around the same
+--- number instead of hard-coding Sidebar.WIDTH.
+function Sidebar.widthFor(viewportWidth)
+	if type(viewportWidth) == "number" and viewportWidth > 0 and viewportWidth < Sidebar.COMPACT_BELOW then
+		return Sidebar.COMPACT_WIDTH
+	end
+
+	return Sidebar.WIDTH
+end
+
 local function heading(parent, text, order)
 	local label = Fonts.new("TextLabel", "small", {
 		Name = "Heading",
@@ -56,12 +71,39 @@ function Sidebar.new(parent, app)
 		Parent = frame,
 	})
 
-	local stack = Util.create("Frame", {
+	local function fitWidth()
+		local gui = app and app.gui
+		local viewport = gui and gui.AbsoluteSize
+
+		if not viewport or viewport.X <= 0 then
+			return
+		end
+
+		frame.Size = UDim2.new(0, Sidebar.widthFor(viewport.X), 1, 0)
+	end
+
+	fitWidth()
+	if app and app.gui then
+		app.gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitWidth)
+	end
+
+	-- Scrolls rather than overflows: the settings rail is taller than the sidebar
+	-- once the window is shorter than its 700px maximum (at a 768px-tall viewport
+	-- the last rows ran a couple of pixels past the rail).
+	local stack = Util.create("ScrollingFrame", {
 		Name = "Stack",
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, -24, 1, -24),
 		Position = UDim2.new(0, 12, 0, 12),
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollingEnabled = true,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Palette.surfaces.border,
+		ScrollBarImageTransparency = 0.3,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
 		Parent = frame,
 	}, {
 		Util.list({ Padding = UDim.new(0, 8) }),

@@ -2607,20 +2607,26 @@ function ChatPanel.new(parent, app)
 		Parent = header,
 	})
 
-	-- Fixed offset width: a scale-width child inside a horizontal UIListLayout
-	-- would stretch and shove the trailing buttons off the row.
+	-- Sized to its own text (capped at 180) rather than claiming a fixed 180: a
+	-- reserved width that the text rarely uses was enough to push this row past
+	-- the header on a small viewport. A scale width is not an option here - it
+	-- would stretch inside the horizontal UIListLayout and shove the buttons out.
 	local status = Fonts.new("TextLabel", "small", {
 		Name = "Status",
 		Text = "ready",
 		TextColor3 = Palette.text.dim,
 		TextSize = 11,
 		BackgroundTransparency = 1,
-		Size = UDim2.new(0, 180, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		TextYAlignment = Enum.TextYAlignment.Center,
 		LayoutOrder = 3,
 		Parent = header,
 	})
+
+	Util.create("UISizeConstraint", { MaxSize = Vector2.new(180, 1000), Parent = status })
 
 	Components.button({
 		Name = "Reset",
@@ -3005,20 +3011,25 @@ function CodePanel.new(parent, app)
 		}),
 	})
 
-	-- Fixed offset width: a scale-width child inside a horizontal UIListLayout
-	-- would stretch and shove the trailing buttons off the row.
+	-- Sized to its own text (capped at 170) instead of reserving a fixed width: on
+	-- a narrow viewport the reserve alone pushed the trailing status past the
+	-- toolbar. A scale width would stretch inside the horizontal list layout.
 	local status = Fonts.new("TextLabel", "small", {
 		Name = "Status",
 		Text = "idle",
 		TextColor3 = Palette.text.dim,
 		TextSize = 11,
 		BackgroundTransparency = 1,
-		Size = UDim2.new(0, 170, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		TextYAlignment = Enum.TextYAlignment.Center,
 		LayoutOrder = 90,
 		Parent = toolbar,
 	})
+
+	Util.create("UISizeConstraint", { MaxSize = Vector2.new(170, 1000), Parent = status })
 
 	-- Editor ------------------------------------------------------------------
 
@@ -4049,20 +4060,36 @@ function Components.dot(props)
 	})
 end
 
+-- Layout-only keys that must never be assigned to the Instance itself.
+local CONSOLE_RESERVED = {
+	Name = true,
+	Size = true,
+	Position = true,
+	LayoutOrder = true,
+	Parent = true,
+}
+
 --- Multi-line read-only output console for the Code / Cowork panes.
 --- Returns a controller table: { frame, scroll, lines, append(text, kind), clear() }
 function Components.console(props)
 	props = props or {}
 
-	local frame = Util.create("Frame", {
+	local config = {
 		Name = props.Name or "Console",
 		BackgroundColor3 = Palette.surfaces.background,
 		BorderSizePixel = 0,
 		Size = props.Size or UDim2.new(1, 0, 1, 0),
-		Position = props.Position,
-		LayoutOrder = props.LayoutOrder,
-		Parent = props.Parent,
-	}, {
+	}
+
+	-- Forward anything else (AnchorPoint, ZIndex, Visible, ...). Dropping props
+	-- here is how the Cowork console used to end up anchored outside its panel.
+	for key, value in pairs(props) do
+		if not CONSOLE_RESERVED[key] then
+			config[key] = value
+		end
+	end
+
+	local frame = Util.create("Frame", config, {
 		Util.corner(8),
 		Util.stroke(Palette.surfaces.border, 1, 0.2),
 	})
@@ -4181,9 +4208,12 @@ function CoworkPanel.new(parent, app)
 
 	-- Info card ---------------------------------------------------------------
 
+	-- Height is set by its own content: four 14px lines with 4px gaps (68) plus
+	-- the 10px vertical padding (20), with a little slack. At 74 the status line
+	-- ran past the card's bottom edge.
 	local info = Components.panel({
 		Name = "Info",
-		Size = UDim2.new(1, -24, 0, 74),
+		Size = UDim2.new(1, -24, 0, 92),
 		Position = UDim2.new(0, 12, 0, 92),
 		Parent = frame,
 	}, {
@@ -4215,7 +4245,8 @@ function CoworkPanel.new(parent, app)
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, -24, 0, 34),
-		Position = UDim2.new(0, 12, 0, 178),
+		-- 12px below the info card (92 + 92 = 184).
+		Position = UDim2.new(0, 12, 0, 196),
 		Parent = frame,
 	}, {
 		Util.list({
@@ -4229,7 +4260,9 @@ function CoworkPanel.new(parent, app)
 		Name = "Console",
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0, 12, 1, -12),
-		Size = UDim2.new(1, -24, 1, -228),
+		-- Bottom-anchored, so this offset is "everything above + 12px": the action
+		-- row ends at 230, leaving 4px of breathing room.
+		Size = UDim2.new(1, -24, 1, -246),
 		Parent = frame,
 	})
 
@@ -4358,6 +4391,20 @@ local Util = require("core/Util")
 local Dashboard = {}
 
 Dashboard.HEADER_HEIGHT = 76
+
+-- Design floor and ceiling for the console window. On a viewport smaller than
+-- the floor it follows the viewport instead, so the window can never be forced
+-- off the edges of the screen (see fitWindowMinimum below).
+Dashboard.MIN_SIZE = Vector2.new(900, 560)
+Dashboard.MAX_SIZE = Vector2.new(1180, 700)
+
+-- Smallest viewport the three-pane console can actually present. Below it the
+-- content area is shorter than a single panel (a 740x360 viewport leaves 106px,
+-- while the Cowork card alone needs ~230px), so the console stays closed and the
+-- ViewportNotice card explains why. Mirrored by the smoke test's FLOOR constant.
+Dashboard.MIN_VIEWPORT = Vector2.new(800, 600)
+-- The window's own margins, which its `Size` below subtracts from the viewport.
+Dashboard.WINDOW_MARGIN = Vector2.new(60, 120)
 Dashboard.TABS = {
 	{ id = "Chat", label = "Chat" },
 	{ id = "Cowork", label = "Cowork" },
@@ -4383,11 +4430,38 @@ function Dashboard.new(gui, app)
 		Parent = gui,
 	})
 
+	local windowConstraint = Util.create("UISizeConstraint", {
+		MinSize = Dashboard.MIN_SIZE,
+		MaxSize = Dashboard.MAX_SIZE,
+	})
+
+	--[[
+		A 900x560 minimum cannot fit an 800x600 viewport: the constraint would win
+		and push the console past the screen edges. Clamping the floor to the
+		window's own size (viewport minus the margins in `Size` below) keeps the
+		whole window on screen at any resolution, while the design floor still
+		applies on anything roomier.
+	]]
+	local function fitWindowMinimum()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 or viewport.Y <= 0 then
+			return
+		end
+
+		windowConstraint.MinSize = Vector2.new(
+			math.max(1, math.min(Dashboard.MIN_SIZE.X, viewport.X - Dashboard.WINDOW_MARGIN.X)),
+			math.max(1, math.min(Dashboard.MIN_SIZE.Y, viewport.Y - Dashboard.WINDOW_MARGIN.Y))
+		)
+	end
+
+	fitWindowMinimum()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitWindowMinimum)
+
 	local window = Util.create("Frame", {
 		Name = "Window",
 		BackgroundColor3 = Palette.surfaces.background,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, -60, 1, -120),
+		Size = UDim2.new(1, -Dashboard.WINDOW_MARGIN.X, 1, -Dashboard.WINDOW_MARGIN.Y),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		ClipsDescendants = true,
@@ -4395,10 +4469,7 @@ function Dashboard.new(gui, app)
 	}, {
 		Util.corner(12),
 		Util.stroke(Palette.surfaces.border, 1, 0),
-		Util.create("UISizeConstraint", {
-			MinSize = Vector2.new(900, 560),
-			MaxSize = Vector2.new(1180, 700),
-		}),
+		windowConstraint,
 	})
 
 	-- Header ------------------------------------------------------------------
@@ -4447,11 +4518,15 @@ function Dashboard.new(gui, app)
 	})
 	Assets.aspect(title, Assets.TITLE_ASPECT, Enum.DominantAxis.Height)
 
+	-- Auto-width rather than a fixed reserve: the four buttons below are
+	-- AutomaticSize.X, and a hard-coded width let the row run past the frame and
+	-- off the clipped edge of the window.
 	local headerActions = Util.create("Frame", {
 		Name = "Actions",
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Size = UDim2.new(0, 260, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
 		Position = UDim2.new(1, -16, 0, 0),
 		AnchorPoint = Vector2.new(1, 0),
 		Parent = header,
@@ -4487,6 +4562,21 @@ function Dashboard.new(gui, app)
 		ZIndex = 2,
 		Parent = body,
 	})
+
+	-- The workspace follows the rail, which narrows on small viewports.
+	local function fitMain()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 then
+			return
+		end
+
+		local width = Sidebar.widthFor(viewport.X)
+		main.Size = UDim2.new(1, -width, 1, 0)
+		main.Position = UDim2.new(0, width, 0, 0)
+	end
+
+	fitMain()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMain)
 
 	local tabs = Components.tabs({
 		Name = "WorkspaceTabs",
@@ -4574,9 +4664,10 @@ function Dashboard.new(gui, app)
 		BackgroundTransparency = 1,
 		ZIndex = 121,
 		Parent = anchor,
+		-- Routed through the API so the "screen too small" notice hides itself
+		-- when the console is opened by hand.
 		OnClick = function()
-			root.Visible = true
-			anchor.Visible = false
+			dashboard:setVisible(true)
 		end,
 	})
 
@@ -4584,6 +4675,57 @@ function Dashboard.new(gui, app)
 	if anchorStroke then
 		anchorStroke.Transparency = 1
 	end
+
+	-- Screen-too-small notice -------------------------------------------------
+
+	-- Stands in for the console below the design floor: a card is legible where
+	-- three cramped panels are not. Parented to the ScreenGui, not to `root`,
+	-- because `root` is exactly what the floor hides.
+	local notice = Components.panel({
+		Name = "ViewportNotice",
+		Size = UDim2.new(0, 360, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Palette.surfaces.background,
+		Visible = false,
+		ZIndex = 130,
+		Parent = gui,
+	}, {
+		Util.list({ Padding = UDim.new(0, 8) }),
+		Util.padding(16),
+	})
+
+	Fonts.new("TextLabel", "subtitle", {
+		Name = "Title",
+		Text = "Screen too small",
+		TextColor3 = Palette.text.primary,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 22),
+		Parent = notice,
+	})
+
+	local noticeBody = Fonts.new("TextLabel", "small", {
+		Name = "Body",
+		Text = "",
+		TextColor3 = Palette.text.secondary,
+		BackgroundTransparency = 1,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 0),
+		TextWrapped = true,
+		Parent = notice,
+	})
+
+	Components.button({
+		Name = "OpenAnyway",
+		Text = "Open the console anyway",
+		Variant = "dark",
+		Size = UDim2.new(1, 0, 0, 34),
+		Parent = notice,
+		OnClick = function()
+			dashboard:setVisible(true)
+		end,
+	})
 
 	-- Dragging ----------------------------------------------------------------
 
@@ -4708,11 +4850,18 @@ function Dashboard.new(gui, app)
 		panels = panels,
 		companion = companion,
 		anchor = anchor,
+		notice = notice,
+		-- True while the viewport is below Dashboard.MIN_VIEWPORT.
+		cramped = false,
 	}
 
 	function dashboard:setVisible(visible)
 		root.Visible = visible == true
 		anchor.Visible = not root.Visible
+		-- The notice replaces the console, so it is shown whenever the console is
+		-- closed on a screen that cannot hold it - including when the user hides
+		-- the console by hand.
+		notice.Visible = dashboard.cramped == true and not root.Visible
 	end
 
 	function dashboard:isVisible()
@@ -4765,8 +4914,54 @@ function Dashboard.new(gui, app)
 		root:Destroy()
 	end
 
+	--[[
+		Viewport floor. Below Dashboard.MIN_VIEWPORT the three-pane layout cannot be
+		presented, so the console closes and the notice above explains the
+		restriction. The previous state is remembered, so growing the window back
+		(turning a phone to landscape) restores what the user had open rather than
+		forcing them to reopen it. Opening the console by hand always wins.
+	]]
+	local restoreOpen
+
+	local function applyFloor()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 or viewport.Y <= 0 then
+			return
+		end
+
+		local cramped = viewport.X < Dashboard.MIN_VIEWPORT.X or viewport.Y < Dashboard.MIN_VIEWPORT.Y
+		local changed = cramped ~= dashboard.cramped
+		dashboard.cramped = cramped
+
+		noticeBody.Text = string.format(
+			"This console needs at least %dx%d - this screen reports %dx%d. "
+				.. "Resize the window or rotate your device, or open it anyway below.",
+			Dashboard.MIN_VIEWPORT.X,
+			Dashboard.MIN_VIEWPORT.Y,
+			math.floor(viewport.X),
+			math.floor(viewport.Y)
+		)
+
+		if cramped and changed then
+			restoreOpen = root.Visible
+			dashboard:setVisible(false)
+			return
+		end
+
+		if not cramped and changed and restoreOpen then
+			restoreOpen = nil
+			dashboard:setVisible(true)
+			return
+		end
+
+		notice.Visible = cramped and not root.Visible
+	end
+
 	dashboard:setTab("Chat")
 	dashboard:setVisible(false)
+
+	applyFloor()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyFloor)
 
 	return dashboard
 end
@@ -4798,6 +4993,53 @@ local Notify = {}
 Notify.container = nil
 Notify.history = {}
 
+-- Live toasts, oldest first. The container grows downward with its list layout,
+-- so a burst of toasts would stack past the bottom of the screen.
+Notify.active = {}
+Notify.MAX_VISIBLE = 4
+
+-- Gap between stacked toasts, mirroring the container's UIListLayout.
+Notify.GAP = 10
+
+--[[
+	Retires old toasts until the rail fits the screen. The count cap alone is not
+	enough: a single Cowork-instructions toast is taller than 200px, so four of them
+	still run off a 768px-tall display. Sizes come from the layout pass that just
+	placed the toast, so this settles in one go; the newest toast is always kept,
+	even if it alone is taller than the screen.
+]]
+function Notify.trimToScreen()
+	local container = Notify.container
+	local screen = container and container.Parent
+	if not container or not screen then
+		return
+	end
+
+	local limit = screen.AbsoluteSize.Y - 36
+
+	while #Notify.active > 1 do
+		local children = container:GetChildren()
+		local total = 0
+
+		for index, child in ipairs(children) do
+			total = total + child.AbsoluteSize.Y
+			if index > 1 then
+				total = total + Notify.GAP
+			end
+		end
+
+		if total <= limit then
+			return
+		end
+
+		local oldest = table.remove(Notify.active, 1)
+		if not oldest then
+			return
+		end
+		oldest.dismiss()
+	end
+end
+
 local VARIANT_COLORS = {
 	info = Palette.neon.cyan,
 	ok = Palette.neon.green,
@@ -4822,11 +5064,17 @@ function Notify.setup(gui)
 		Parent = gui,
 	}, {
 		Util.list({
-			Padding = UDim.new(0, 10),
+			Padding = UDim.new(0, Notify.GAP),
 			HorizontalAlignment = Enum.HorizontalAlignment.Right,
 			VerticalAlignment = Enum.VerticalAlignment.Top,
 		}),
 	})
+
+	-- Trim on both triggers: the rail grows when a toast arrives, and the screen
+	-- can shrink under a stack that already fits (the rail itself keeps its size
+	-- through a resize, since it is sized by its content).
+	Notify.container:GetPropertyChangedSignal("AbsoluteSize"):Connect(Notify.trimToScreen)
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(Notify.trimToScreen)
 
 	return Notify.container
 end
@@ -5014,6 +5262,13 @@ function Notify.toast(options)
 		end
 		dismissed = true
 
+		for index, entry in ipairs(Notify.active) do
+			if entry.toast == wrap then
+				table.remove(Notify.active, index)
+				break
+			end
+		end
+
 		Util.animate(scale, { Scale = 0.94 }, 0.15)
 		local tween = Util.animate(wrap, { BackgroundTransparency = 1 }, 0.16)
 		tween.Completed:Connect(function()
@@ -5022,6 +5277,12 @@ function Notify.toast(options)
 	end
 
 	close.MouseButton1Click:Connect(dismiss)
+
+	table.insert(Notify.active, { toast = wrap, dismiss = dismiss })
+	while #Notify.active > Notify.MAX_VISIBLE do
+		local oldest = table.remove(Notify.active, 1)
+		oldest.dismiss()
+	end
 
 	local duration = options.Duration == nil and 6 or options.Duration
 	if duration > 0 then
@@ -5398,6 +5659,21 @@ local Sidebar = {}
 
 Sidebar.WIDTH = 252
 
+-- The rail narrows on small viewports. At 800x600 a 252px rail leaves the
+-- workspace ~440px, which is less than one toolbar row (buttons + status) needs.
+Sidebar.COMPACT_WIDTH = 200
+Sidebar.COMPACT_BELOW = 1100
+
+--- Rail width for a viewport, so the workspace can be sized around the same
+--- number instead of hard-coding Sidebar.WIDTH.
+function Sidebar.widthFor(viewportWidth)
+	if type(viewportWidth) == "number" and viewportWidth > 0 and viewportWidth < Sidebar.COMPACT_BELOW then
+		return Sidebar.COMPACT_WIDTH
+	end
+
+	return Sidebar.WIDTH
+end
+
 local function heading(parent, text, order)
 	local label = Fonts.new("TextLabel", "small", {
 		Name = "Heading",
@@ -5434,12 +5710,39 @@ function Sidebar.new(parent, app)
 		Parent = frame,
 	})
 
-	local stack = Util.create("Frame", {
+	local function fitWidth()
+		local gui = app and app.gui
+		local viewport = gui and gui.AbsoluteSize
+
+		if not viewport or viewport.X <= 0 then
+			return
+		end
+
+		frame.Size = UDim2.new(0, Sidebar.widthFor(viewport.X), 1, 0)
+	end
+
+	fitWidth()
+	if app and app.gui then
+		app.gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitWidth)
+	end
+
+	-- Scrolls rather than overflows: the settings rail is taller than the sidebar
+	-- once the window is shorter than its 700px maximum (at a 768px-tall viewport
+	-- the last rows ran a couple of pixels past the rail).
+	local stack = Util.create("ScrollingFrame", {
 		Name = "Stack",
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, -24, 1, -24),
 		Position = UDim2.new(0, 12, 0, 12),
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollingEnabled = true,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = Palette.surfaces.border,
+		ScrollBarImageTransparency = 0.3,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
 		Parent = frame,
 	}, {
 		Util.list({ Padding = UDim.new(0, 8) }),
@@ -5759,6 +6062,7 @@ __modules["ui/Tutorial"] = function(require)
 local Assets = require("core/Assets")
 local Companion = require("ui/Companion")
 local Components = require("ui/Components")
+local Dashboard = require("ui/Dashboard")
 local Fonts = require("core/Fonts")
 local Palette = require("core/Palette")
 local State = require("core/State")
@@ -5869,6 +6173,18 @@ end
 
 --- `onFinish` runs once the user completes (or skips) onboarding.
 function Tutorial.start(gui, app, onFinish)
+	-- The tour highlights pieces of the console, so below Dashboard's design floor
+	-- (where the console stays closed) it would point at nothing. It stands down
+	-- and lets the too-small notice speak for itself.
+	local viewport = gui and gui.AbsoluteSize
+	local measured = viewport and viewport.X > 0 and viewport.Y > 0
+	if measured and (viewport.X < Dashboard.MIN_VIEWPORT.X or viewport.Y < Dashboard.MIN_VIEWPORT.Y) then
+		if onFinish then
+			onFinish()
+		end
+		return nil
+	end
+
 	local overlay = Util.create("Frame", {
 		Name = "Tutorial",
 		BackgroundColor3 = Palette.overlay.color,

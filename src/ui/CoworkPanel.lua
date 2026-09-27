@@ -52,9 +52,12 @@ function CoworkPanel.new(parent, app)
 
 	-- Info card ---------------------------------------------------------------
 
+	-- Height is set by its own content: four 14px lines with 4px gaps (68) plus
+	-- the 10px vertical padding (20), with a little slack. At 74 the status line
+	-- ran past the card's bottom edge.
 	local info = Components.panel({
 		Name = "Info",
-		Size = UDim2.new(1, -24, 0, 74),
+		Size = UDim2.new(1, -24, 0, 92),
 		Position = UDim2.new(0, 12, 0, 92),
 		Parent = frame,
 	}, {
@@ -86,7 +89,8 @@ function CoworkPanel.new(parent, app)
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, -24, 0, 34),
-		Position = UDim2.new(0, 12, 0, 178),
+		-- 12px below the info card (92 + 92 = 184).
+		Position = UDim2.new(0, 12, 0, 196),
 		Parent = frame,
 	}, {
 		Util.list({
@@ -100,7 +104,9 @@ function CoworkPanel.new(parent, app)
 		Name = "Console",
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0, 12, 1, -12),
-		Size = UDim2.new(1, -24, 1, -228),
+		-- Bottom-anchored, so this offset is "everything above + 12px": the action
+		-- row ends at 230, leaving 4px of breathing room.
+		Size = UDim2.new(1, -24, 1, -246),
 		Parent = frame,
 	})
 

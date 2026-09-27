@@ -159,8 +159,65 @@ fails the test rather than failing in game. Because the project is Luau, compoun
 assignments are rewritten to their Lua 5.3 equivalent for the test run only; the
 shipped bundle is untouched.
 
+### Geometry assertions
+
+A widget can build correctly and still render as nothing, so the stub also
+resolves the layout: `UDim2` sizes, `UIListLayout` order (fill direction,
+padding, alignment, `SortOrder`), `UIPadding`, `AutomaticSize` content,
+`UISizeConstraint`, `UIAspectRatioConstraint` and the `ScrollingFrame` canvas,
+with text measured from an average glyph width per font family. That makes
+`AbsolutePosition`, `AbsoluteSize` and `AbsoluteCanvasSize` readable in the test,
+and every resolved rectangle is swept with three assertions:
+
+- no button (visible or not) collapses to zero area
+- every visible label or button carrying text has area, a readable `TextSize` and
+  non-transparent glyphs
+- no visible child escapes an unclipped parent
+- the console window fits inside the viewport
+- below the design floor the console is closed and the too-small notice is shown
+  in its place; at or above it the console is back
+
+The sweep runs nine viewport sizes - 1920x1080, 2560x1440, 3840x2160, 1600x900,
+1366x768, 1280x720, 1024x768, 800x600 and 740x360 - and all three tabs at each,
+because "fits at 1080p" is not the same claim as "fits on a laptop". Resizing
+drives the same `AbsoluteSize` handlers the engine would, so anything that reacts
+to the viewport is exercised too.
+
+`__relayout(app.gui)` re-runs the pass after the UI changes, and elements that
+size themselves off `AbsoluteSize` (the toast accent rail, the narrowing sidebar)
+settle on a second pass. The stub treats the `Absolute*` properties as read-only,
+exactly as the engine does, so a regression that wrote to one fails loudly
+instead of silently diverging from this model.
+
+**Design floor.** Below 800x600 the three-pane console has less vertical room
+than a single panel's content needs - at 740x360 the content area is 106px tall
+and the Cowork card alone wants ~230px - so the console closes and
+`ViewportNotice` explains the requirement rather than drawing cramped panels.
+Containment findings below the floor are printed as `INFO` for that reason;
+everything at 800x600 and above is asserted strictly, and the window-level
+guarantees (the console stays on screen, nothing collapses, text stays readable)
+hold at every size in the matrix. Two escape hatches keep it from being a dead
+end: "open the console anyway" (and the floating anchor button) works on any
+screen, and growing the window back - a phone turning to landscape - reopens what
+the floor closed.
+
+Layout is a snapshot, not a renderer: text metrics are estimates, `UIGridLayout`
+is not simulated, and nothing scrolls or animates. It is deliberately
+approximate - it needs to separate "collapsed to nothing" and "hanging outside
+its panel" from "fine", not match Roblox to the pixel.
+
 ## Notes and limits
 
+- The console adapts to the screen: its minimum window size follows the viewport
+  (a fixed 900x560 floor used to push it off a 800x600 display), the sidebar rail
+  narrows to 200px below a 1100px-wide viewport so the workspace keeps room for a
+  full toolbar row, and the toast rail retires old toasts once the stack would
+  run past the bottom of the screen. Below 800x600 the three panes are too short
+  to be usable, so the console stays closed and a notice says so; it can still be
+  opened by hand from that notice or the anchor button.
+- The onboarding tour (first run only) sits outside the viewport matrix: it runs
+  at boot, before the sweep. Below the design floor it stands down rather than
+  pointing at a console that is not on screen.
 - Line counts in the Code pane are rebuilt from the editor contents on change;
   the gutter does not scroll in lockstep with a long buffer.
 - `Persona.PreparePayload` mirrors the spec's reference implementation verbatim;

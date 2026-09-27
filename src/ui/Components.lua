@@ -664,20 +664,36 @@ function Components.dot(props)
 	})
 end
 
+-- Layout-only keys that must never be assigned to the Instance itself.
+local CONSOLE_RESERVED = {
+	Name = true,
+	Size = true,
+	Position = true,
+	LayoutOrder = true,
+	Parent = true,
+}
+
 --- Multi-line read-only output console for the Code / Cowork panes.
 --- Returns a controller table: { frame, scroll, lines, append(text, kind), clear() }
 function Components.console(props)
 	props = props or {}
 
-	local frame = Util.create("Frame", {
+	local config = {
 		Name = props.Name or "Console",
 		BackgroundColor3 = Palette.surfaces.background,
 		BorderSizePixel = 0,
 		Size = props.Size or UDim2.new(1, 0, 1, 0),
-		Position = props.Position,
-		LayoutOrder = props.LayoutOrder,
-		Parent = props.Parent,
-	}, {
+	}
+
+	-- Forward anything else (AnchorPoint, ZIndex, Visible, ...). Dropping props
+	-- here is how the Cowork console used to end up anchored outside its panel.
+	for key, value in pairs(props) do
+		if not CONSOLE_RESERVED[key] then
+			config[key] = value
+		end
+	end
+
+	local frame = Util.create("Frame", config, {
 		Util.corner(8),
 		Util.stroke(Palette.surfaces.border, 1, 0.2),
 	})

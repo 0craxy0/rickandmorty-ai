@@ -21,6 +21,53 @@ local Notify = {}
 Notify.container = nil
 Notify.history = {}
 
+-- Live toasts, oldest first. The container grows downward with its list layout,
+-- so a burst of toasts would stack past the bottom of the screen.
+Notify.active = {}
+Notify.MAX_VISIBLE = 4
+
+-- Gap between stacked toasts, mirroring the container's UIListLayout.
+Notify.GAP = 10
+
+--[[
+	Retires old toasts until the rail fits the screen. The count cap alone is not
+	enough: a single Cowork-instructions toast is taller than 200px, so four of them
+	still run off a 768px-tall display. Sizes come from the layout pass that just
+	placed the toast, so this settles in one go; the newest toast is always kept,
+	even if it alone is taller than the screen.
+]]
+function Notify.trimToScreen()
+	local container = Notify.container
+	local screen = container and container.Parent
+	if not container or not screen then
+		return
+	end
+
+	local limit = screen.AbsoluteSize.Y - 36
+
+	while #Notify.active > 1 do
+		local children = container:GetChildren()
+		local total = 0
+
+		for index, child in ipairs(children) do
+			total = total + child.AbsoluteSize.Y
+			if index > 1 then
+				total = total + Notify.GAP
+			end
+		end
+
+		if total <= limit then
+			return
+		end
+
+		local oldest = table.remove(Notify.active, 1)
+		if not oldest then
+			return
+		end
+		oldest.dismiss()
+	end
+end
+
 local VARIANT_COLORS = {
 	info = Palette.neon.cyan,
 	ok = Palette.neon.green,
@@ -45,11 +92,17 @@ function Notify.setup(gui)
 		Parent = gui,
 	}, {
 		Util.list({
-			Padding = UDim.new(0, 10),
+			Padding = UDim.new(0, Notify.GAP),
 			HorizontalAlignment = Enum.HorizontalAlignment.Right,
 			VerticalAlignment = Enum.VerticalAlignment.Top,
 		}),
 	})
+
+	-- Trim on both triggers: the rail grows when a toast arrives, and the screen
+	-- can shrink under a stack that already fits (the rail itself keeps its size
+	-- through a resize, since it is sized by its content).
+	Notify.container:GetPropertyChangedSignal("AbsoluteSize"):Connect(Notify.trimToScreen)
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(Notify.trimToScreen)
 
 	return Notify.container
 end
@@ -237,6 +290,13 @@ function Notify.toast(options)
 		end
 		dismissed = true
 
+		for index, entry in ipairs(Notify.active) do
+			if entry.toast == wrap then
+				table.remove(Notify.active, index)
+				break
+			end
+		end
+
 		Util.animate(scale, { Scale = 0.94 }, 0.15)
 		local tween = Util.animate(wrap, { BackgroundTransparency = 1 }, 0.16)
 		tween.Completed:Connect(function()
@@ -245,6 +305,12 @@ function Notify.toast(options)
 	end
 
 	close.MouseButton1Click:Connect(dismiss)
+
+	table.insert(Notify.active, { toast = wrap, dismiss = dismiss })
+	while #Notify.active > Notify.MAX_VISIBLE do
+		local oldest = table.remove(Notify.active, 1)
+		oldest.dismiss()
+	end
 
 	local duration = options.Duration == nil and 6 or options.Duration
 	if duration > 0 then

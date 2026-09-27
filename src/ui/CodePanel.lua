@@ -58,20 +58,25 @@ function CodePanel.new(parent, app)
 		}),
 	})
 
-	-- Fixed offset width: a scale-width child inside a horizontal UIListLayout
-	-- would stretch and shove the trailing buttons off the row.
+	-- Sized to its own text (capped at 170) instead of reserving a fixed width: on
+	-- a narrow viewport the reserve alone pushed the trailing status past the
+	-- toolbar. A scale width would stretch inside the horizontal list layout.
 	local status = Fonts.new("TextLabel", "small", {
 		Name = "Status",
 		Text = "idle",
 		TextColor3 = Palette.text.dim,
 		TextSize = 11,
 		BackgroundTransparency = 1,
-		Size = UDim2.new(0, 170, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Right,
 		TextYAlignment = Enum.TextYAlignment.Center,
 		LayoutOrder = 90,
 		Parent = toolbar,
 	})
+
+	Util.create("UISizeConstraint", { MaxSize = Vector2.new(170, 1000), Parent = status })
 
 	-- Editor ------------------------------------------------------------------
 

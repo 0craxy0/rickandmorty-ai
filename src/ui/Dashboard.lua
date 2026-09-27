@@ -25,6 +25,20 @@ local Util = require("core/Util")
 local Dashboard = {}
 
 Dashboard.HEADER_HEIGHT = 76
+
+-- Design floor and ceiling for the console window. On a viewport smaller than
+-- the floor it follows the viewport instead, so the window can never be forced
+-- off the edges of the screen (see fitWindowMinimum below).
+Dashboard.MIN_SIZE = Vector2.new(900, 560)
+Dashboard.MAX_SIZE = Vector2.new(1180, 700)
+
+-- Smallest viewport the three-pane console can actually present. Below it the
+-- content area is shorter than a single panel (a 740x360 viewport leaves 106px,
+-- while the Cowork card alone needs ~230px), so the console stays closed and the
+-- ViewportNotice card explains why. Mirrored by the smoke test's FLOOR constant.
+Dashboard.MIN_VIEWPORT = Vector2.new(800, 600)
+-- The window's own margins, which its `Size` below subtracts from the viewport.
+Dashboard.WINDOW_MARGIN = Vector2.new(60, 120)
 Dashboard.TABS = {
 	{ id = "Chat", label = "Chat" },
 	{ id = "Cowork", label = "Cowork" },
@@ -50,11 +64,38 @@ function Dashboard.new(gui, app)
 		Parent = gui,
 	})
 
+	local windowConstraint = Util.create("UISizeConstraint", {
+		MinSize = Dashboard.MIN_SIZE,
+		MaxSize = Dashboard.MAX_SIZE,
+	})
+
+	--[[
+		A 900x560 minimum cannot fit an 800x600 viewport: the constraint would win
+		and push the console past the screen edges. Clamping the floor to the
+		window's own size (viewport minus the margins in `Size` below) keeps the
+		whole window on screen at any resolution, while the design floor still
+		applies on anything roomier.
+	]]
+	local function fitWindowMinimum()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 or viewport.Y <= 0 then
+			return
+		end
+
+		windowConstraint.MinSize = Vector2.new(
+			math.max(1, math.min(Dashboard.MIN_SIZE.X, viewport.X - Dashboard.WINDOW_MARGIN.X)),
+			math.max(1, math.min(Dashboard.MIN_SIZE.Y, viewport.Y - Dashboard.WINDOW_MARGIN.Y))
+		)
+	end
+
+	fitWindowMinimum()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitWindowMinimum)
+
 	local window = Util.create("Frame", {
 		Name = "Window",
 		BackgroundColor3 = Palette.surfaces.background,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, -60, 1, -120),
+		Size = UDim2.new(1, -Dashboard.WINDOW_MARGIN.X, 1, -Dashboard.WINDOW_MARGIN.Y),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		ClipsDescendants = true,
@@ -62,10 +103,7 @@ function Dashboard.new(gui, app)
 	}, {
 		Util.corner(12),
 		Util.stroke(Palette.surfaces.border, 1, 0),
-		Util.create("UISizeConstraint", {
-			MinSize = Vector2.new(900, 560),
-			MaxSize = Vector2.new(1180, 700),
-		}),
+		windowConstraint,
 	})
 
 	-- Header ------------------------------------------------------------------
@@ -114,11 +152,15 @@ function Dashboard.new(gui, app)
 	})
 	Assets.aspect(title, Assets.TITLE_ASPECT, Enum.DominantAxis.Height)
 
+	-- Auto-width rather than a fixed reserve: the four buttons below are
+	-- AutomaticSize.X, and a hard-coded width let the row run past the frame and
+	-- off the clipped edge of the window.
 	local headerActions = Util.create("Frame", {
 		Name = "Actions",
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Size = UDim2.new(0, 260, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
 		Position = UDim2.new(1, -16, 0, 0),
 		AnchorPoint = Vector2.new(1, 0),
 		Parent = header,
@@ -154,6 +196,21 @@ function Dashboard.new(gui, app)
 		ZIndex = 2,
 		Parent = body,
 	})
+
+	-- The workspace follows the rail, which narrows on small viewports.
+	local function fitMain()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 then
+			return
+		end
+
+		local width = Sidebar.widthFor(viewport.X)
+		main.Size = UDim2.new(1, -width, 1, 0)
+		main.Position = UDim2.new(0, width, 0, 0)
+	end
+
+	fitMain()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMain)
 
 	local tabs = Components.tabs({
 		Name = "WorkspaceTabs",
@@ -241,9 +298,10 @@ function Dashboard.new(gui, app)
 		BackgroundTransparency = 1,
 		ZIndex = 121,
 		Parent = anchor,
+		-- Routed through the API so the "screen too small" notice hides itself
+		-- when the console is opened by hand.
 		OnClick = function()
-			root.Visible = true
-			anchor.Visible = false
+			dashboard:setVisible(true)
 		end,
 	})
 
@@ -251,6 +309,57 @@ function Dashboard.new(gui, app)
 	if anchorStroke then
 		anchorStroke.Transparency = 1
 	end
+
+	-- Screen-too-small notice -------------------------------------------------
+
+	-- Stands in for the console below the design floor: a card is legible where
+	-- three cramped panels are not. Parented to the ScreenGui, not to `root`,
+	-- because `root` is exactly what the floor hides.
+	local notice = Components.panel({
+		Name = "ViewportNotice",
+		Size = UDim2.new(0, 360, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Palette.surfaces.background,
+		Visible = false,
+		ZIndex = 130,
+		Parent = gui,
+	}, {
+		Util.list({ Padding = UDim.new(0, 8) }),
+		Util.padding(16),
+	})
+
+	Fonts.new("TextLabel", "subtitle", {
+		Name = "Title",
+		Text = "Screen too small",
+		TextColor3 = Palette.text.primary,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 22),
+		Parent = notice,
+	})
+
+	local noticeBody = Fonts.new("TextLabel", "small", {
+		Name = "Body",
+		Text = "",
+		TextColor3 = Palette.text.secondary,
+		BackgroundTransparency = 1,
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Size = UDim2.new(1, 0, 0, 0),
+		TextWrapped = true,
+		Parent = notice,
+	})
+
+	Components.button({
+		Name = "OpenAnyway",
+		Text = "Open the console anyway",
+		Variant = "dark",
+		Size = UDim2.new(1, 0, 0, 34),
+		Parent = notice,
+		OnClick = function()
+			dashboard:setVisible(true)
+		end,
+	})
 
 	-- Dragging ----------------------------------------------------------------
 
@@ -375,11 +484,18 @@ function Dashboard.new(gui, app)
 		panels = panels,
 		companion = companion,
 		anchor = anchor,
+		notice = notice,
+		-- True while the viewport is below Dashboard.MIN_VIEWPORT.
+		cramped = false,
 	}
 
 	function dashboard:setVisible(visible)
 		root.Visible = visible == true
 		anchor.Visible = not root.Visible
+		-- The notice replaces the console, so it is shown whenever the console is
+		-- closed on a screen that cannot hold it - including when the user hides
+		-- the console by hand.
+		notice.Visible = dashboard.cramped == true and not root.Visible
 	end
 
 	function dashboard:isVisible()
@@ -432,8 +548,54 @@ function Dashboard.new(gui, app)
 		root:Destroy()
 	end
 
+	--[[
+		Viewport floor. Below Dashboard.MIN_VIEWPORT the three-pane layout cannot be
+		presented, so the console closes and the notice above explains the
+		restriction. The previous state is remembered, so growing the window back
+		(turning a phone to landscape) restores what the user had open rather than
+		forcing them to reopen it. Opening the console by hand always wins.
+	]]
+	local restoreOpen
+
+	local function applyFloor()
+		local viewport = gui.AbsoluteSize
+		if not viewport or viewport.X <= 0 or viewport.Y <= 0 then
+			return
+		end
+
+		local cramped = viewport.X < Dashboard.MIN_VIEWPORT.X or viewport.Y < Dashboard.MIN_VIEWPORT.Y
+		local changed = cramped ~= dashboard.cramped
+		dashboard.cramped = cramped
+
+		noticeBody.Text = string.format(
+			"This console needs at least %dx%d - this screen reports %dx%d. "
+				.. "Resize the window or rotate your device, or open it anyway below.",
+			Dashboard.MIN_VIEWPORT.X,
+			Dashboard.MIN_VIEWPORT.Y,
+			math.floor(viewport.X),
+			math.floor(viewport.Y)
+		)
+
+		if cramped and changed then
+			restoreOpen = root.Visible
+			dashboard:setVisible(false)
+			return
+		end
+
+		if not cramped and changed and restoreOpen then
+			restoreOpen = nil
+			dashboard:setVisible(true)
+			return
+		end
+
+		notice.Visible = cramped and not root.Visible
+	end
+
 	dashboard:setTab("Chat")
 	dashboard:setVisible(false)
+
+	applyFloor()
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyFloor)
 
 	return dashboard
 end

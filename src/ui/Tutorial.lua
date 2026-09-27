@@ -15,6 +15,7 @@
 local Assets = require("core/Assets")
 local Companion = require("ui/Companion")
 local Components = require("ui/Components")
+local Dashboard = require("ui/Dashboard")
 local Fonts = require("core/Fonts")
 local Palette = require("core/Palette")
 local State = require("core/State")
@@ -125,6 +126,18 @@ end
 
 --- `onFinish` runs once the user completes (or skips) onboarding.
 function Tutorial.start(gui, app, onFinish)
+	-- The tour highlights pieces of the console, so below Dashboard's design floor
+	-- (where the console stays closed) it would point at nothing. It stands down
+	-- and lets the too-small notice speak for itself.
+	local viewport = gui and gui.AbsoluteSize
+	local measured = viewport and viewport.X > 0 and viewport.Y > 0
+	if measured and (viewport.X < Dashboard.MIN_VIEWPORT.X or viewport.Y < Dashboard.MIN_VIEWPORT.Y) then
+		if onFinish then
+			onFinish()
+		end
+		return nil
+	end
+
 	local overlay = Util.create("Frame", {
 		Name = "Tutorial",
 		BackgroundColor3 = Palette.overlay.color,
