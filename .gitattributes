@@ -1,0 +1,9 @@
+# Normalise everything to LF in the repository, regardless of core.autocrlf.
+* text=auto eol=lf
+
+# Assets
+*.png binary
+*.jpg binary
+
+# Keep generated bundles out of diffs
+dist/*.lua linguist-generated=true

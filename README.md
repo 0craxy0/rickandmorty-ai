@@ -1,0 +1,127 @@
+# Rick & Morty AI Executor
+
+A Rick & Morty themed AI script engine for the Roblox environment, built from the
+six specification documents in [`idea/`](idea). It gives you two ways to drive an
+LLM straight from inside a game session:
+
+- **Semicolon quick menu** — press `;` anywhere, type a prompt, and the returned
+  Luau executes into the live `Workspace` before the overlay closes.
+- **Full dashboard** — a dark multi-pane console with a history sidebar, a
+  production workspace, and a companion portrait tucked into the lower right.
+
+## Layout
+
+```
+idea/                the six specs this project implements (source of truth)
+imgs/                title.png, rick.png, morty.png
+src/                 Luau source, one module per concern
+  init.lua           entry point + public API
+  core/              Util, Palette, Fonts, Assets, State, Http, Providers,
+                     Persona, Typewriter, CodeRunner, Chat, Cowork
+  ui/                Components, Companion, Notify, QuickMenu, Sidebar,
+                     ChatPanel, CoworkPanel, CodePanel, Tutorial, Dashboard
+bridge/              Cowork payload (Node server + external interface)
+build.js             validator + single-file bundler
+dist/                generated rick-morty-executor.lua (paste into an executor)
+```
+
+### Spec mapping
+
+| Spec | Implementation |
+| :--- | :--- |
+| `main.md` — architecture, persona engine, API matrix | `init.lua`, `ui/Dashboard.lua`, `core/Persona.lua`, `core/Providers.lua` |
+| `fonts.md` — typography + typewriter audio | `core/Fonts.lua`, `core/Typewriter.lua` |
+| `colour-palette.md` — surfaces, neons, states | `core/Palette.lua`, `ui/Components.lua` |
+| `png-usage.md` — title + companion portraits | `core/Assets.lua`, `ui/Companion.lua` |
+| `ui-creation.md` — modes, providers, tabs | `ui/QuickMenu.lua`, `ui/Sidebar.lua`, `ui/ChatPanel.lua`, `ui/CoworkPanel.lua`, `ui/CodePanel.lua` |
+| `backend.md` — prompt injection, bridge, transport, hot-loading | `core/Persona.lua`, `core/Cowork.lua`, `core/Http.lua`, `core/CodeRunner.lua` |
+
+## Usage
+
+```lua
+-- paste dist/rick-morty-executor.lua into your executor and run it
+```
+
+Then:
+
+| Action | How |
+| :--- | :--- |
+| Quick menu | press `;` (Escape or a click outside closes it) |
+| Open the dashboard | run `RickMortyAI:Open()`, or click the `AI CONSOLE` anchor |
+| Switch companion | sidebar Rick / Morty buttons, or `RickMortyAI:SetCompanion("Morty")` |
+| Tear everything down | `RickMortyAI:Unload()` |
+
+Configuration (companion, provider, API keys, model overrides, archived
+conversations) is persisted to `rick_morty_ai_config.json` in the executor's
+workspace folder via `writefile`/`readfile`.
+
+### Artwork
+
+`Assets.resolve()` looks for each PNG beside the executor's workspace
+(`title.png`) and then in `imgs/`, handing the local path to `getcustomasset()`.
+If a file is missing the UI draws nothing for it and boot raises a warning toast
+rather than silently loading an unrelated asset id.
+
+The banner uses the logo's **trimmed** aspect ratio (3468×1064 ≈ 3.26:1) and not
+the 16:9 canvas, because `title.png` is mostly transparent padding — constraining
+to 16:9 would letterbox the logo into a sliver.
+
+## Providers
+
+| Provider | Style | Default template |
+| :--- | :--- | :--- |
+| OpenRouter | openai | `{"model": "anthropic/claude-3.5-sonnet", "messages": []}` |
+| AgentRouter | agent | `{"agent": "default", "prompt": ""}` |
+| Anthropic | anthropic | `{"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024}` |
+| OpenAI | openai | `{"model": "gpt-4o", "messages": []}` |
+| DeepSeek | openai | `{"model": "deepseek-chat", "messages": []}` |
+| FreeBuff | freebuff | `{"provider": "freebuff", "input": ""}` |
+
+Requests go through the executor's privileged transport (`request`,
+`http_request`, `syn.request`, ...) and fall back to `HttpService:RequestAsync`
+for whitelisted domains. The sidebar reports which transport is live.
+
+## Cowork mode
+
+Choosing **Cowork → Generate bridge** writes a self-contained Node app into
+`<executor workspace>/rick_morty_bridge/`:
+
+```
+server.js          HTTP server + provider calls (Node 18+ global fetch)
+index.html         the external high-fidelity interface
+config.json        active provider, model, companion, API key
+launch_bridge.bat  Windows launcher
+launch_bridge.sh   macOS / Linux launcher
+README.txt         instructions
+```
+
+Double-click the launcher and the interface opens on
+`http://localhost:7896`. Because requests originate from Node, Roblox's HTTP
+domain whitelist no longer applies.
+
+## Building
+
+```bash
+npm run check   # validate modules only
+npm run build   # validate + emit dist/rick-morty-executor.lua
+```
+
+`build.js` is dependency-free and does three things:
+
+1. **Validates** every module — block/bracket balance via a Luau tokenizer
+   (comment and string aware), accidental-global detection (`function foo()`
+   without `local`), and `require()` resolution against the module graph.
+2. **Inlines** everything under `bridge/` as raw text assets (`bundle/assets`).
+3. **Bundles** the modules behind a tiny `require` registry so the exact same
+   source runs unbundled in a dev harness or as one pasteable chunk.
+
+## Notes and limits
+
+- Line counts in the Code pane are rebuilt from the editor contents on change;
+  the gutter does not scroll in lockstep with a long buffer.
+- `Persona.PreparePayload` mirrors the spec's reference implementation verbatim;
+  the live pipeline uses `Persona.buildMessages`, which keeps the persona
+  attached to every stateless HTTP call instead of only the first one.
+- `CodeRunner` publishes generated source into a `RickMortyAI_Scripts` folder in
+  `Workspace` for auditing, then executes it with `loadstring` under the
+  executor's environment.

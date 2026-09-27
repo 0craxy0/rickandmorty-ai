@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rick &amp; Morty AI - Cowork</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #161b22;
+        --card: #21262d;
+        --border: #30363d;
+        --green: #00ff88;
+        --cyan: #00e1ff;
+        --pink: #ff007f;
+        --text: #e6edf3;
+        --muted: #8b949e;
+        --accent: #00ff88;
+        --accent-soft: #00bd65;
+        --mono: "Roboto Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+        --sans: "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+      }
+
+      body { display: flex; flex-direction: column; }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 18px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .brand {
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        font-size: 15px;
+        color: var(--accent);
+      }
+
+      .badge {
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--muted);
+      }
+
+      .badge.live { color: var(--accent); border-color: var(--accent-soft); }
+      .grow { flex: 1; }
+
+      main { flex: 1; display: flex; min-height: 0; }
+
+      aside {
+        width: 250px;
+        min-width: 250px;
+        background: var(--panel);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 14px;
+        gap: 12px;
+        overflow-y: auto;
+      }
+
+      aside h2 {
+        font-size: 11px;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 6px;
+      }
+
+      .session {
+        padding: 9px 10px;
+        border-radius: 8px;
+        background: var(--card);
+        border: 1px solid transparent;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--muted);
+      }
+
+      .session:hover { border-color: var(--border); color: var(--text); }
+      .session.active { border-color: var(--accent-soft); color: var(--text); }
+
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        color: var(--text);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 9px 12px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+      }
+
+      button:hover { background: var(--border); border-color: var(--accent-soft); }
+      button:active { background: var(--panel); }
+      button.primary { background: var(--accent-soft); border-color: var(--accent); color: #04110b; font-weight: 700; }
+      button.primary:hover { background: var(--accent); }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      #chat {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      #transcript {
+        flex: 1;
+        overflow-y: auto;
+        padding: 22px 26px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .turn { display: flex; gap: 12px; max-width: 900px; }
+      .turn .who {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent);
+        flex-shrink: 0;
+      }
+
+      .turn .body { min-width: 0; }
+      .turn .name { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+
+      .bubble {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 14px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .turn.user .bubble { background: var(--card); }
+      .turn.assistant .bubble { border-left: 2px solid var(--accent-soft); }
+
+      pre {
+        background: #0b0f14;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        overflow-x: auto;
+        font-family: var(--mono);
+        font-size: 13px;
+        margin: 10px 0 0;
+        white-space: pre;
+      }
+
+      .code-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 12px;
+      }
+
+      code.inline {
+        font-family: var(--mono);
+        font-size: 13px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        padding: 1px 5px;
+      }
+
+      .composer {
+        border-top: 1px solid var(--border);
+        background: var(--panel);
+        padding: 14px 26px 18px;
+      }
+
+      .composer .row { display: flex; gap: 10px; align-items: flex-end; max-width: 900px; margin: 0 auto; }
+
+      textarea {
+        flex: 1;
+        resize: none;
+        min-height: 52px;
+        max-height: 220px;
+        padding: 13px 14px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 13px;
+        outline: none;
+      }
+
+      textarea:focus { border-color: var(--accent-soft); }
+
+      .hint {
+        max-width: 900px;
+        margin: 8px auto 0;
+        font-size: 11px;
+        color: var(--muted);
+        font-family: var(--mono);
+      }
+
+      .status { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+      .status.error { color: var(--pink); }
+      .status.ok { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">Cowork Bridge</span>
+      <span class="badge" id="provider-badge">connecting...</span>
+      <span class="badge" id="companion-badge">&nbsp;</span>
+      <span class="grow"></span>
+      <span class="status" id="status">idle</span>
+    </header>
+
+    <main>
+      <aside>
+        <h2>Conversations</h2>
+        <button id="new-chat">+ New conversation</button>
+        <div id="sessions"></div>
+        <h2 style="margin-top: 10px">Agent loop</h2>
+        <button id="agent-mode">Plan &rarr; implement</button>
+        <p class="hint" style="margin: 0">
+          Multi-step mode plans first, then writes the Luau in a second pass.
+        </p>
+      </aside>
+
+      <section id="chat">
+        <div id="transcript"></div>
+        <div class="composer">
+          <div class="row">
+            <textarea id="prompt" rows="1" placeholder="Ask for a Luau script, a patch, or an explanation..."></textarea>
+            <button class="primary" id="send">Send</button>
+          </div>
+          <div class="hint">
+            Enter to send &middot; Shift+Enter for a new line &middot; click any code block to copy it
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const transcript = document.getElementById('transcript');
+      const promptBox = document.getElementById('prompt');
+      const sendButton = document.getElementById('send');
+      const statusEl = document.getElementById('status');
+      const providerBadge = document.getElementById('provider-badge');
+      const companionBadge = document.getElementById('companion-badge');
+      const sessionsEl = document.getElementById('sessions');
+      const newChatButton = document.getElementById('new-chat');
+      const agentButton = document.getElementById('agent-mode');
+
+      let messages = [];
+      let sessions = [];
+      let agentMode = false;
+      let busy = false;
+
+      function escapeHtml(text) {
+        return text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+
+      // Renders fenced code blocks and inline code without any dependency.
+      function render(text) {
+        const parts = [];
+        const pattern = /```([\w+-]*)\r?\n([\s\S]*?)```/g;
+        let cursor = 0;
+        let match;
+
+        while ((match = pattern.exec(text)) !== null) {
+          if (match.index > cursor) {
+            parts.push({ type: 'text', value: text.slice(cursor, match.index) });
+          }
+          parts.push({ type: 'code', lang: match[1] || 'lua', value: match[2] });
+          cursor = match.index + match[0].length;
+        }
+
+        if (cursor < text.length) parts.push({ type: 'text', value: text.slice(cursor) });
+
+        return parts
+          .map((part) => {
+            if (part.type === 'code') {
+              return (
+                '<div class="code-head">' +
+                escapeHtml(part.lang) +
+                ' &middot; click to copy</div>' +
+                '<pre data-code="1">' +
+                escapeHtml(part.value.replace(/\s+$/, '')) +
+                '</pre>'
+              );
+            }
+            const escaped = escapeHtml(part.value).replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>');
+            return escaped;
+          })
+          .join('');
+      }
+
+      function addTurn(role, text) {
+        const turn = document.createElement('div');
+        turn.className = 'turn ' + role;
+        turn.innerHTML =
+          '<div class="who">' +
+          (role === 'user' ? 'YOU' : 'AI') +
+          '</div>' +
+          '<div class="body"><div class="name">' +
+          (role === 'user' ? 'Operator' : 'Companion') +
+          '</div><div class="bubble">' +
+          render(text) +
+          '</div></div>';
+        transcript.appendChild(turn);
+        transcript.scrollTop = transcript.scrollHeight;
+      }
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = 'status' + (kind ? ' ' + kind : '');
+      }
+
+      function setBusy(value) {
+        busy = value;
+        sendButton.disabled = value;
+        sendButton.textContent = value ? 'Working...' : 'Send';
+      }
+
+      function renderSessions() {
+        sessionsEl.innerHTML = '';
+        sessions.forEach((session, index) => {
+          const node = document.createElement('div');
+          node.className = 'session' + (session.active ? ' active' : '');
+          node.textContent = session.title;
+          node.addEventListener('click', () => {
+            sessions.forEach((item) => (item.active = false));
+            session.active = true;
+            messages = session.messages.slice();
+            transcript.innerHTML = '';
+            for (const message of messages) addTurn(message.role, message.content);
+            renderSessions();
+          });
+          sessionsEl.appendChild(node);
+          if (index === 0 && !session.active) session.active = true;
+        });
+      }
+
+      function currentSession() {
+        if (sessions.length === 0) {
+          sessions.push({ title: 'New conversation', messages: [], active: true });
+        }
+        return sessions[0];
+      }
+
+      async function send() {
+        const content = promptBox.value.trim();
+        if (!content || busy) return;
+
+        promptBox.value = '';
+        addTurn('user', content);
+        messages.push({ role: 'user', content });
+
+        const session = currentSession();
+        session.messages = messages.slice();
+        if (session.title === 'New conversation') {
+          session.title = content.slice(0, 40);
+          renderSessions();
+        }
+
+        setBusy(true);
+        setStatus(agentMode ? 'agent loop running...' : 'waiting for provider...');
+
+        try {
+          const response = await fetch(agentMode ? '/api/agent' : '/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages }),
+          });
+
+          const data = await response.json();
+          if (data.error) throw new Error(data.error);
+
+          addTurn('assistant', data.text);
+          messages.push({ role: 'assistant', content: data.text });
+          session.messages = messages.slice();
+          setStatus('replied in ' + data.ms + 'ms', 'ok');
+        } catch (error) {
+          addTurn('assistant', '**Bridge error**\n\n' + String(error.message || error));
+          setStatus('request failed', 'error');
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      sendButton.addEventListener('click', send);
+
+      promptBox.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          send();
+        }
+      });
+
+      promptBox.addEventListener('input', () => {
+        promptBox.style.height = 'auto';
+        promptBox.style.height = Math.min(promptBox.scrollHeight, 220) + 'px';
+      });
+
+      transcript.addEventListener('click', (event) => {
+        const pre = event.target.closest('pre');
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.textContent).then(() => {
+          setStatus('code copied', 'ok');
+        });
+      });
+
+      newChatButton.addEventListener('click', () => {
+        if (messages.length > 0) {
+          sessions[0].messages = messages.slice();
+          if (sessions[0].title === 'New conversation') {
+            sessions[0].title = (messages[0] && messages[0].content.slice(0, 40)) || 'Conversation';
+          }
+        }
+        sessions.forEach((item) => (item.active = false));
+        sessions.unshift({ title: 'New conversation', messages: [], active: true });
+        messages = [];
+        transcript.innerHTML = '';
+        renderSessions();
+        setStatus('new conversation', 'ok');
+      });
+
+      agentButton.addEventListener('click', () => {
+        agentMode = !agentMode;
+        agentButton.textContent = agentMode ? 'Agent loop: ON' : 'Plan \u2192 implement';
+        agentButton.classList.toggle('primary', agentMode);
+        setStatus(agentMode ? 'multi-step loop enabled' : 'single-shot mode', 'ok');
+      });
+
+      (async function boot() {
+        try {
+          const response = await fetch('/api/status');
+          const data = await response.json();
+          providerBadge.textContent = data.provider + ' - ' + data.model;
+          providerBadge.classList.add('live');
+          companionBadge.textContent = 'companion: ' + data.companion;
+          if (!data.hasKey && data.provider !== 'AgentRouter') {
+            setStatus('no API key configured', 'error');
+          } else {
+            setStatus('ready', 'ok');
+          }
+        } catch (error) {
+          providerBadge.textContent = 'bridge offline';
+          setStatus('cannot reach bridge', 'error');
+        }
+
+        addTurn(
+          'assistant',
+          '**Cowork bridge online.**\n\nThis window talks straight to your configured provider, so nothing is blocked by the Roblox HTTP whitelist.\n\nAsk for a Luau script and I will return it in a code block you can copy into the executor.'
+        );
+        renderSessions();
+        promptBox.focus();
+      })();
+    </script>
+  </body>
+</html>
