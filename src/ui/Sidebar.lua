@@ -278,7 +278,7 @@ function Sidebar.new(parent, app)
 
 	Fonts.new("TextLabel", "small", {
 		Name = "Version",
-		Text = "v" .. tostring(app and app.version or "1.0.0") .. "  //  " .. State.companion(),
+		Text = "v" .. tostring(app and app.version or "dev") .. "  //  " .. State.companion(),
 		TextColor3 = Palette.text.dim,
 		TextSize = 10,
 		BackgroundTransparency = 1,

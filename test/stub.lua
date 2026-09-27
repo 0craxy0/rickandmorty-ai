@@ -18,6 +18,7 @@ local STUB = {
 	taskErrors = {},
 	warnings = {},
 	unknownReads = {},
+	prints = {},
 	boundActions = {},
 	queue = {},
 	created = 0,
@@ -79,6 +80,30 @@ end
 
 function getgenv()
 	return _G
+end
+
+--[[
+	The executor's loader. Roblox exposes `loadstring` only with elevated identity,
+	so the app treats it as optional - but without it every run path in the test
+	returned "loadstring is unavailable in this environment" and the one feature
+	the app exists for was never executed. Fengari's `load` has the same shape:
+	source in, function (or nil + message) out.
+]]
+function loadstring(source, chunkName)
+	local name = chunkName and ("=" .. tostring(chunkName)) or "=(loadstring)"
+	return load(tostring(source), name, "t")
+end
+
+--[[
+	Captured rather than printed: a script that actually runs prints, and that
+	output belongs in the assertions instead of in the middle of the test log.
+]]
+function print(...)
+	local parts = {}
+	for _, value in ipairs({ ... }) do
+		table.insert(parts, tostring(value))
+	end
+	table.insert(STUB.prints, table.concat(parts, " "))
 end
 
 -- Datatypes -------------------------------------------------------------------
@@ -185,7 +210,63 @@ local ALLOWED = propertySet([[
 	DisplayOrder IgnoreGuiInset ResetOnSpawn ZIndexBehavior OnTopOfCoreBlur
 	SoundId Volume PlaybackSpeed Looped Playing TimePosition SoundGroup
 	Source Disabled RunContext Value
+	Shape Material Anchored CanCollide CastShadow Massless Reflectance Orientation
+	CFrame Velocity BrickColor TopSurface BottomSurface
 ]])
+
+--[[
+	Roblox members are per-class, and this stub used to answer every read from the
+	flat superset above: `child.AbsoluteSize` on a UIListLayout returned a
+	plausible 100x20 instead of the error a real client raises. Measurement code
+	that walked the wrong object therefore passed here and crashed in game
+	("AbsoluteSize is not a valid member of UIListLayout"). The decoration and
+	layout objects a panel can contain are enumerated instead, so a read outside
+	the class fails the way Roblox fails. Classes that are not listed keep the
+	permissive behaviour, which is what the dynamic parts of the API need.
+]]
+local CLASS_MEMBERS = {
+	UIListLayout = propertySet("AbsoluteContentSize FillDirection HorizontalAlignment Padding SortOrder VerticalAlignment Wraps ItemLineAlignment"),
+	UIPadding = propertySet("PaddingTop PaddingRight PaddingBottom PaddingLeft"),
+	UICorner = propertySet("CornerRadius"),
+	UIStroke = propertySet("ApplyStrokeMode Color Enabled LineJoinMode Thickness Transparency"),
+	UISizeConstraint = propertySet("MaxSize MinSize"),
+	UIAspectRatioConstraint = propertySet("AspectRatio AspectType DominantAxis"),
+	UIScale = propertySet("Scale"),
+	UIGridLayout = propertySet("AbsoluteCellCount AbsoluteCellSize AbsoluteContentSize CellPadding CellSize FillDirection FillDirectionMaxCells HorizontalAlignment SortOrder StartCorner VerticalAlignment"),
+	UIGradient = propertySet("Color Offset Rotation Transparency"),
+
+	-- The rest of the classes the bundle constructs or reads. The lists are the
+	-- bundle's real members plus the well-known public properties of the class, so
+	-- a typo (`sound.Volum`) reads an error instead of nil. Classes that are not
+	-- listed stay permissive on purpose: the executor runs scripts that create
+	-- whatever they like, and this stub only knows the app's own furniture.
+	Sound = propertySet("SoundId Volume PlaybackSpeed Looped Playing TimePosition SoundGroup RollOffMode RespectFilteringEnabled"),
+	ModuleScript = propertySet("Source"),
+	Folder = propertySet(""),
+	ScreenGui = propertySet("AbsolutePosition AbsoluteRotation AbsoluteSize Enabled DisplayOrder IgnoreGuiInset IgnoresTitleBarReservation ResetOnSpawn ZIndexBehavior OnTopOfCoreBlur ClipToDeviceSafeArea SafeAreaCompatibility ScreenInsets"),
+	Player = propertySet("DisplayName UserId PlayerGui Character"),
+	PlayerGui = propertySet("CurrentScreenOrientation ScreenOrientation"),
+	Workspace = propertySet("CurrentCamera DistributedGameTime FallenPartsDestroyHeight Gravity StreamingEnabled Terrain"),
+	-- What a script the executor runs is most likely to build. Other BasePart
+	-- subclasses stay permissive. Part-only members (Shape) sit alongside the
+	-- BasePart ones (Material, Anchored, ...) because the class name is the exact
+	-- class here, not the hierarchy.
+	Part = propertySet("Anchored CanCollide CastShadow Color Material Orientation Position Rotation Shape Size Transparency"),
+	SoundService = propertySet("AmbientReverb DistanceFactor DopplerScale ListenerType RespectFilteringEnabled"),
+}
+
+--- Members every Instance answers to.
+local INSTANCE_MEMBERS = propertySet("Name Parent Archivable ClassName")
+
+--- Classes the bundle builds and expects to behave like GuiObjects. Declared
+--- here, above the instance proxy, because both the proxy and the layout pass
+--- consult it and a `local` below its first use would read nil.
+local GUI_CLASSES = propertySet([[
+	Frame TextLabel TextButton TextBox ImageLabel ImageButton ScrollingFrame
+	ViewportFrame CanvasGroup
+]])
+
+local TEXT_CLASSES = propertySet("TextLabel TextButton TextBox")
 
 -- Values returned when a property has not been assigned yet.
 local DEFAULTS = {
@@ -413,7 +494,19 @@ local function newInstance(class)
 	end
 
 	function methods.IsA(_, className)
-		return className == class or className == "Instance"
+		if className == class or className == "Instance" then
+			return true
+		end
+
+		-- Only the hierarchy the bundle actually asks about is modelled.
+		if className == "GuiObject" then
+			return GUI_CLASSES[class] == true
+		end
+		if className == "UIComponent" or className == "UIBase" then
+			return CLASS_MEMBERS[class] ~= nil
+		end
+
+		return false
 	end
 
 	function methods.Clone()
@@ -463,6 +556,17 @@ local function newInstance(class)
 					data.signals[key] = newSignal(key)
 				end
 				return data.signals[key]
+			end
+
+			local members = CLASS_MEMBERS[class]
+			if members and not members[key] and not INSTANCE_MEMBERS[key] then
+				-- Exactly what Roblox raises for this mistake.
+				local message = string.format("%s is not a valid member of %s", tostring(key), class)
+				table.insert(
+					STUB.violations,
+					string.format('%s "%s"  (read by the bundle)', message, data.Name)
+				)
+				error(message, 2)
 			end
 
 			local absoluteField = ABSOLUTE_KEYS[key]
@@ -563,6 +667,30 @@ Instance = {
 
 -- DataModel and services ------------------------------------------------------
 
+--[[
+	Services are plain tables in this stub, which means a misspelled member used to
+	read nil and quietly take the "this environment cannot do that" branch instead
+	of failing. Wrapping them makes a typo as loud as it is on an Instance.
+]]
+local function service(name, members)
+	local function reject(key, verb)
+		local message = string.format("%s is not a valid member of %s", tostring(key), name)
+		table.insert(STUB.violations, string.format("%s  (%s by the bundle)", message, verb))
+		error(message, 2)
+	end
+
+	setmetatable(members, {
+		__index = function(_, key)
+			reject(key, "read")
+		end,
+		__newindex = function(_, key)
+			reject(key, "assigned")
+		end,
+	})
+
+	return members
+end
+
 local workspaceInstance = newInstance("Workspace")
 
 local playerGui = newInstance("PlayerGui")
@@ -661,6 +789,16 @@ local contextActionService = {
 	end,
 }
 
+-- Wrapped only now that every member exists: `function tweenService:Create()`
+-- assigns a new key, which the guard would reject. setmetatable mutates the table
+-- in place, so every reference - including `game.TweenService` - sees the guard.
+service("Players", players)
+service("HttpService", httpService)
+service("TweenService", tweenService)
+service("RunService", runService)
+service("UserInputService", userInputService)
+service("ContextActionService", contextActionService)
+
 local services = {
 	Players = players,
 	HttpService = httpService,
@@ -681,7 +819,12 @@ workspace = workspaceInstance
 game = {
 	GetService = function(_, name)
 		if not services[name] then
-			services[name] = newInstance(name)
+			-- Roblox refuses a service that does not exist. Auto-creating one turned a
+			-- typo'd name (`game:GetService("HttpServce")`) into a permissive object
+			-- whose every read was nil, which is exactly the silence to avoid.
+			local message = string.format("%s is not a valid service name", tostring(name))
+			table.insert(STUB.violations, message .. "  (read by the bundle)")
+			error(message, 2)
 		end
 		return services[name]
 	end,
@@ -716,13 +859,6 @@ game = {
 	Usage: __relayout(instance) from test/assert.lua, then read AbsolutePosition /
 	AbsoluteSize / AbsoluteCanvasSize as usual.
 ]]
-
-local GUI_CLASSES = propertySet([[
-	Frame TextLabel TextButton TextBox ImageLabel ImageButton ScrollingFrame
-	ViewportFrame CanvasGroup
-]])
-
-local TEXT_CLASSES = propertySet("TextLabel TextButton TextBox")
 
 --- Average glyph width as a fraction of TextSize, per Roblox font family.
 local FONT_WIDTH = {
@@ -835,10 +971,13 @@ function STUB.isVisible(instance)
 	local current = instance
 
 	while current do
-		if current.Visible ~= true then
+		local data = REGISTRY[current]
+		-- Only GuiObjects have Visible; a layout or decoration object cannot hide
+		-- anything, so it is skipped rather than read.
+		if data and GUI_CLASSES[data.ClassName] and current.Visible ~= true then
 			return false
 		end
-		current = REGISTRY[current] and REGISTRY[current].Parent or nil
+		current = data and data.Parent or nil
 	end
 
 	return true

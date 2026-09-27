@@ -27,7 +27,7 @@ local QuickMenu = require("ui/QuickMenu")
 
 local app = {}
 
-app.version = "1.0.0"
+app.version = "1.0.1"
 app.gui = nil
 app.dashboard = nil
 app.quickMenu = nil

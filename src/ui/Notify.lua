@@ -48,12 +48,23 @@ function Notify.trimToScreen()
 	while #Notify.active > 1 do
 		local children = container:GetChildren()
 		local total = 0
+		local measured = 0
 
-		for index, child in ipairs(children) do
-			total = total + child.AbsoluteSize.Y
-			if index > 1 then
-				total = total + Notify.GAP
+		for _, child in ipairs(children) do
+			-- The container also holds its own UIListLayout, and layout objects have
+			-- no AbsoluteSize: measuring every child raised "AbsoluteSize is not a
+			-- valid member of UIListLayout" on the first pass after a toast arrived.
+			if child:IsA("GuiObject") then
+				measured += 1
+				total += child.AbsoluteSize.Y
+				if measured > 1 then
+					total += Notify.GAP
+				end
 			end
+		end
+
+		if measured == 0 then
+			return
 		end
 
 		if total <= limit then

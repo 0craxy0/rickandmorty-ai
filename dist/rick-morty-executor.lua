@@ -7,8 +7,8 @@
 
 	Install (latest main):
 		loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/main/dist/rick-morty-executor.lua"))()
-	Pinned to v1.0.0:
-		loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.0/dist/rick-morty-executor.lua"))()
+	Pinned to v1.0.1:
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.1/dist/rick-morty-executor.lua"))()
 
 ]]
 
@@ -575,7 +575,11 @@ function CodeRunner.execute(text, options)
 	end
 
 	local note = published and "" or "\n(publishing to Workspace failed)"
-	return true, tostring(output) .. note, holder
+
+	-- A chunk with no return value reports nil. Every call site renders an empty
+	-- output as "script finished", so normalising it here is what makes that
+	-- fallback reachable - `tostring(nil)` put a literal "nil" in the console.
+	return true, (output == nil and "" or tostring(output)) .. note, holder
 end
 
 return CodeRunner
@@ -2355,7 +2359,7 @@ local QuickMenu = require("ui/QuickMenu")
 
 local app = {}
 
-app.version = "1.0.0"
+app.version = "1.0.1"
 app.gui = nil
 app.dashboard = nil
 app.quickMenu = nil
@@ -2574,6 +2578,13 @@ function ChatPanel.new(parent, app)
 		Size = UDim2.new(1, 0, 1, 0),
 		Parent = parent,
 	})
+
+	-- Declared up front, before the header controls: their OnClick callbacks call
+	-- back into this table, and a `local` introduced further down the function is
+	-- not visible to a closure defined above it. Those reads then compiled to a
+	-- global lookup - `attempt to index nil with 'clear'` on the first click - so
+	-- the declaration has to precede every callback that uses it.
+	local panel = {}
 
 	-- Header ------------------------------------------------------------------
 
@@ -2827,7 +2838,8 @@ function ChatPanel.new(parent, app)
 						app.notify(ok and "Executed" or "Execution failed", tostring(output ~= "" and output or "script finished"))
 					end
 					if app and app.dashboard then
-						app.dashboard:log(ok and ("[executed] " .. tostring(output)) or ("[error] " .. tostring(output)), ok and "ok" or "error")
+						local summary = output ~= "" and tostring(output) or "script finished"
+						app.dashboard:log(ok and ("[executed] " .. summary) or ("[error] " .. tostring(output)), ok and "ok" or "error")
 					end
 				end,
 			})
@@ -2858,11 +2870,9 @@ function ChatPanel.new(parent, app)
 
 	-- Panel API ---------------------------------------------------------------
 
-	local panel = {
-		frame = frame,
-		transcript = transcript,
-		input = input,
-	}
+	panel.frame = frame
+	panel.transcript = transcript
+	panel.input = input
 
 	function panel:setStatus(text, kind)
 		status.Text = text
@@ -5020,12 +5030,23 @@ function Notify.trimToScreen()
 	while #Notify.active > 1 do
 		local children = container:GetChildren()
 		local total = 0
+		local measured = 0
 
-		for index, child in ipairs(children) do
-			total = total + child.AbsoluteSize.Y
-			if index > 1 then
-				total = total + Notify.GAP
+		for _, child in ipairs(children) do
+			-- The container also holds its own UIListLayout, and layout objects have
+			-- no AbsoluteSize: measuring every child raised "AbsoluteSize is not a
+			-- valid member of UIListLayout" on the first pass after a toast arrived.
+			if child:IsA("GuiObject") then
+				measured += 1
+				total += child.AbsoluteSize.Y
+				if measured > 1 then
+					total += Notify.GAP
+				end
 			end
+		end
+
+		if measured == 0 then
+			return
 		end
 
 		if total <= limit then
@@ -5917,7 +5938,7 @@ function Sidebar.new(parent, app)
 
 	Fonts.new("TextLabel", "small", {
 		Name = "Version",
-		Text = "v" .. tostring(app and app.version or "1.0.0") .. "  //  " .. State.companion(),
+		Text = "v" .. tostring(app and app.version or "dev") .. "  //  " .. State.companion(),
 		TextColor3 = Palette.text.dim,
 		TextSize = 10,
 		BackgroundTransparency = 1,

@@ -289,6 +289,141 @@ function tokenize(source, file) {
 
 const PAIRS = { '(': ')', '[': ']', '{': '}' };
 
+/**
+ * Locals are only visible *after* their declaration. A read above it is not a
+ * forward reference in Lua - it compiles to a global lookup, which is nil. This
+ * is how `panel:clear()` a few lines above `local panel = {}` shipped: it parses,
+ * it loads, and it worked until a player pressed the button, then raised
+ * "attempt to index nil with 'clear'".
+ *
+ * Parameters and `for` variables bind where they appear and are exempt, since a
+ * read "before" one of those is ordinary shadowing.
+ */
+function validateForwardLocals(file, tokens) {
+  const declaredAt = new Map();
+  const boundAt = new Map();
+  const declarations = new Set();
+
+  const bind = (map, name, line) => {
+    if (!map.has(name) || line < map.get(name)) map.set(name, line);
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type !== 'name') continue;
+
+    if (token.value === 'local') {
+      const isFunction = tokens[i + 1] && tokens[i + 1].value === 'function';
+      let cursor = i + 1 + (isFunction ? 1 : 0);
+
+      while (tokens[cursor] && tokens[cursor].type === 'name') {
+        bind(declaredAt, tokens[cursor].value, token.line);
+        declarations.add(cursor);
+        if (isFunction) break;
+        cursor++;
+        if (tokens[cursor] && tokens[cursor].value === ':') cursor += 2; // `: Type`
+        if (tokens[cursor] && tokens[cursor].value === ',') {
+          cursor++;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+
+    if (token.value === 'for') {
+      let cursor = i + 1;
+      while (tokens[cursor] && tokens[cursor].type === 'name') {
+        bind(boundAt, tokens[cursor].value, token.line);
+        declarations.add(cursor);
+        cursor++;
+        if (tokens[cursor] && tokens[cursor].value === ',') {
+          cursor++;
+          continue;
+        }
+        break;
+      }
+      continue;
+    }
+
+    if (token.value === 'function') {
+      // Step over `name`, `a.b` and `a:b` to reach the parameter list.
+      let cursor = i + 1;
+      while (tokens[cursor] && tokens[cursor].type === 'name') {
+        cursor++;
+        if (tokens[cursor] && (tokens[cursor].value === '.' || tokens[cursor].value === ':')) {
+          cursor++;
+          continue;
+        }
+        break;
+      }
+      if (!tokens[cursor] || tokens[cursor].value !== '(') continue;
+
+      let depth = 0;
+      let expectName = true;
+
+      for (let j = cursor; j < tokens.length; j++) {
+        const inner = tokens[j];
+
+        if (inner.value === '(') {
+          depth++;
+          continue;
+        }
+        if (inner.value === ')') {
+          depth--;
+          if (depth === 0) break;
+          continue;
+        }
+        if (depth !== 1) continue;
+        if (inner.value === ',') {
+          expectName = true;
+          continue;
+        }
+        if (inner.value === ':') {
+          expectName = false; // type annotation
+          continue;
+        }
+        if (inner.type === 'name' && expectName) {
+          bind(boundAt, inner.value, token.line);
+          declarations.add(j);
+          expectName = false;
+        }
+      }
+      continue;
+    }
+  }
+
+  const errors = [];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type !== 'name') continue;
+
+    const declared = declaredAt.get(token.value);
+    if (declared === undefined) continue;
+    if (declarations.has(i)) continue;
+
+    const previous = tokens[i - 1];
+    const next = tokens[i + 1];
+
+    if (previous && previous.type === 'symbol' && (previous.value === '.' || previous.value === ':')) continue;
+    if (previous && previous.type === 'name' && previous.value === 'local') continue;
+    // `local function name` - the name is the declaration, not a read of it.
+    if (previous && previous.value === 'function' && tokens[i - 2] && tokens[i - 2].value === 'local') continue;
+    // Table keys in a constructor are not reads of the local.
+    if (next && next.value === '=' && previous && previous.type === 'symbol' && ['{', ','].includes(previous.value)) continue;
+
+    if (token.line > declared) continue;
+    if (boundAt.has(token.value) && boundAt.get(token.value) <= token.line) continue;
+
+    errors.push(
+      `${file}:${token.line}: '${token.value}' is used before its \`local\` on line ${declared} - that reads a global, which is nil`
+    );
+  }
+
+  return errors;
+}
+
 function validate(file, source) {
   const scanned = tokenize(source, file);
   if (scanned.error) return [scanned.error];
@@ -367,6 +502,8 @@ function validate(file, source) {
     errors.push(`${file}: module has no return statement`);
   }
 
+  errors.push(...validateForwardLocals(file, tokens));
+
   // Accidental globals: `function name()` without `local` leaks into _G. Table
   // methods (`function Table.name()`) are the intended style and stay fine.
   for (let i = 0; i < tokens.length; i++) {
@@ -386,6 +523,26 @@ function validate(file, source) {
     if (!isLocal && !isExpression && target && target.type === 'name') {
       errors.push(`${file}:${token.line}: 'function ${target.value}()' is a global - add \`local\``);
     }
+  }
+
+  return errors;
+}
+
+/**
+ * `app.version` is what the running console prints, so it has to agree with the
+ * version the install URLs are pinned to. It was a second hand-maintained copy of
+ * `package.json`, which is how the sidebar ended up reporting a release that had
+ * already been superseded.
+ */
+function validateVersion(file, source, version) {
+  const errors = [];
+  const pattern = /app\.version\s*=\s*"([^"]*)"/g;
+  let match;
+
+  while ((match = pattern.exec(source)) !== null) {
+    if (match[1] === version) continue;
+    const line = source.slice(0, match.index).split('\n').length;
+    errors.push(`${file}:${line}: app.version is "${match[1]}" but package.json says "${version}"`);
   }
 
   return errors;
@@ -504,12 +661,15 @@ function main() {
   const knownIds = new Set([ENTRY, 'bundle/assets']);
   for (const file of files) knownIds.add(moduleId(file));
 
+  const version = (repoCoordinates() || {}).version || '0.0.0';
+
   const errors = [];
   for (const file of files) {
     const source = fs.readFileSync(file, 'utf8');
     const id = moduleId(file) + '.lua';
     errors.push(...validate(id, source));
     errors.push(...validateRequires(id, source, knownIds));
+    errors.push(...validateVersion(id, source, version));
   }
 
   if (errors.length > 0) {
@@ -560,4 +720,15 @@ function main() {
   }
 }
 
-main();
+// Shared with verify-publish.js so the install URLs keep one source of truth.
+module.exports = {
+  repoCoordinates,
+  rawUrls,
+  oneLiner,
+  OUT_FILE,
+  OUT_FILE_NAME,
+  BEGIN_MARK,
+  END_MARK,
+};
+
+if (require.main === module) main();

@@ -183,6 +183,103 @@ check(
 	scriptContainer and #scriptContainer:GetChildren()
 )
 
+--[[
+	Execution, end to end. Until the stub grew `loadstring`, every one of these
+	paths returned "loadstring is unavailable in this environment": the run
+	controls were asserted only as far as publishing a ModuleScript, and nothing
+	ever proved a script the executor ran had any effect.
+]]
+local function consoleText()
+	local parts = {}
+	for _, line in ipairs(codePanel.console.lines) do
+		table.insert(parts, tostring(line.Text))
+	end
+	return table.concat(parts, "\n")
+end
+
+local function panelStatus()
+	local bar = codePanel.frame:FindFirstChild("Toolbar")
+	local label = bar and bar:FindFirstChild("Status")
+	return label and tostring(label.Text) or "<no status label>"
+end
+
+local function lastPrint()
+	return STUB.prints[#STUB.prints]
+end
+
+local function runEditor()
+	if runButton then
+		runButton.MouseButton1Click:Fire()
+		__drain()
+	end
+end
+
+--- Executes a snippet the way the app does: code arrives inside a lua fence.
+local function runFenced(source)
+	codePanel:setSource("```lua\n" .. source .. "\n```")
+	runEditor()
+end
+
+-- The shipped sample, executed for real: it builds a neon ball in Workspace.
+codePanel:clearConsole()
+if sampleButton then
+	sampleButton.MouseButton1Click:Fire()
+	__drain()
+end
+check(
+	"the sample loads into the editor as plain Luau",
+	#codePanel:getSource() > 40 and string.find(codePanel:getSource(), "```") == nil
+)
+runFenced(codePanel:getSource())
+
+check(
+	"the sample script's print reaches the executor's output",
+	type(lastPrint()) == "string" and string.find(lastPrint(), "RickMortyAI sample executed") ~= nil,
+	tostring(lastPrint())
+)
+check(
+	"the sample script's Instance.new survives in Workspace",
+	workspace:FindFirstChild("PortalTest") ~= nil
+)
+check(
+	"the console reports the finished run",
+	string.find(consoleText(), "script finished") ~= nil,
+	consoleText()
+)
+check("the pane reports the run as executed", panelStatus() == "executed", panelStatus())
+
+-- A script that reads the executor's own globals, the way a pasted snippet does.
+codePanel:clearConsole()
+runFenced("local api = getgenv().RickMortyAI\nprint(api and api.version or 'missing')")
+check(
+	"an executed script sees the public API through getgenv()",
+	lastPrint() == app.version,
+	string.format("print %s, app.version %s", tostring(lastPrint()), tostring(app.version))
+)
+
+-- A script that throws.
+codePanel:clearConsole()
+runFenced("error('boom from the smoke test')")
+check(
+	"a script that throws is reported, with its message",
+	string.find(consoleText(), "boom from the smoke test") ~= nil and panelStatus() == "execution failed",
+	panelStatus() .. " :: " .. consoleText()
+)
+
+-- A script that does not compile: the run header plus the compiler's message.
+codePanel:clearConsole()
+runFenced("local = 1")
+check(
+	"a script that does not compile is reported too",
+	#codePanel.console.lines == 2 and panelStatus() == "execution failed",
+	panelStatus() .. " :: " .. consoleText()
+)
+check(
+	"running code never warned",
+	#STUB.warnings == 0,
+	table.concat(STUB.warnings, " | ")
+)
+
 if clearButton then
 	clearButton.MouseButton1Click:Fire()
 	check("clear empties the editor", codePanel:getSource() == "", codePanel:getSource())
@@ -215,6 +312,38 @@ check(
 	containerAfterChat ~= nil and #containerAfterChat:GetChildren() >= 2,
 	containerAfterChat and #containerAfterChat:GetChildren()
 )
+
+--[[
+	The panel's own header and composer controls. Both call back into the panel
+	table, and both were broken the same way - a `panel` local declared *below*
+	the callback, so the click read a global and raised "attempt to index nil with
+	'clear'" in game. Every check here passed without pressing them.
+]]
+local chatHeader = chatPanel.frame:FindFirstChild("Header")
+local chatReset = chatHeader and chatHeader:FindFirstChild("Reset")
+check("chat panel exposes its own New chat button", chatReset ~= nil)
+
+chatPanel:addUser("a turn to archive")
+if chatReset then
+	chatReset.MouseButton1Click:Fire()
+	__drain()
+	check(
+		"the panel's New chat button clears the transcript",
+		#chatPanel.transcript:GetChildren() == 0,
+		#chatPanel.transcript:GetChildren()
+	)
+end
+
+local composer = chatPanel.frame:FindFirstChild("Composer")
+local sendButton = composer and composer:FindFirstChild("Send")
+check("chat composer exposes Send", sendButton ~= nil)
+
+if sendButton then
+	-- Empty prompt: the click has to reach panel:submit() and return early.
+	sendButton.MouseButton1Click:Fire()
+	__drain()
+	check("Send with an empty prompt adds no turn", #chatPanel.transcript:GetChildren() == 0)
+end
 
 -- Cowork pane: bridge generation degrades cleanly without writefile.
 app.dashboard:setTab("Cowork")
@@ -429,7 +558,10 @@ local function sweep(label, width, height)
 			if parent then
 				parentPosition, parentSize = rect(parent)
 			end
-			local clips = parentClass == "ScrollingFrame" or (parent ~= nil and parent.ClipsDescendants == true)
+			-- ClipsDescendants belongs to GuiObject, not to the ScreenGui: a screen
+			-- cannot clip, and reading it there was the stub's first catch on this file.
+			local clips = parentClass == "ScrollingFrame"
+				or (parent ~= nil and STUB.isGuiObject(parent) and parent.ClipsDescendants == true)
 			local container = parentClass == "ScreenGui" or (parent ~= nil and STUB.isGuiObject(parent))
 
 			if visible and position and size and parentPosition and parentSize and container and not clips then
@@ -667,6 +799,69 @@ if check("a toast rendered with a card and an accent rail", toast ~= nil and rai
 	)
 end
 
+--[[
+	A burst of toasts. The rail is a list-layout container that grows downward, so
+	it has to retire its own entries until the stack fits the screen - and the
+	measurement is over the toasts only. It used to sum every child, which means it
+	counted its own UIListLayout: a read Roblox raises on, and one this stub used to
+	answer with a plausible 100x20, so the trim fired against a wrong total here and
+	threw "AbsoluteSize is not a valid member of UIListLayout" in game.
+
+	Body chosen so the height trim, not just the four-toast cap, has to bite: the
+	rail is 360px wide, so ~580 characters wrap to roughly 16 lines (~300px), and
+	four of those do not fit 720px of screen.
+]]
+do
+	local baseline = STUB.VIEWPORT
+	STUB.VIEWPORT = { X = 1280, Y = 720 }
+	__drain()
+	__relayout(app.gui)
+
+	local longBody = string.rep("A deliberately long toast body, so the rail has to retire older entries. ", 8)
+
+	for index = 1, 6 do
+		app.notify("burst " .. tostring(index), longBody, "info")
+		__drain()
+		__relayout(app.gui)
+	end
+
+	__drain()
+	__relayout(app.gui)
+
+	local mounted, titles = {}, {}
+
+	for _, child in ipairs(notifications:GetChildren()) do
+		if STUB.classOf(child) == "Frame" then
+			table.insert(mounted, child)
+			local card = child:FindFirstChild("Card")
+			local header = card and card:FindFirstChild("Header")
+			local title = header and header:FindFirstChild("Title")
+			table.insert(titles, title and title.Text or "?")
+		end
+	end
+
+	local listed = table.concat(titles, ", ")
+	local railPosition, railSize = rect(notifications)
+
+	check("a toast burst retires down to the visible cap", #mounted <= 4, listed)
+	check("the height trim retires past the cap", #mounted >= 1 and #mounted < 4, listed)
+	check("the newest toast survives the trim", listed:find("burst 6") ~= nil, listed)
+	check("the oldest toast is retired first", listed:find("burst 1") == nil, listed)
+	check(
+		"the remaining toast stack still fits the screen",
+		railPosition ~= nil and railSize ~= nil and railPosition.Y + railSize.Y <= 720,
+		string.format(
+			"rail %s,%s %sx%s at 1280x720",
+			rounded(railPosition and railPosition.X), rounded(railPosition and railPosition.Y),
+			rounded(railSize and railSize.X), rounded(railSize and railSize.Y)
+		)
+	)
+
+	STUB.VIEWPORT = baseline
+	__drain()
+	__relayout(app.gui)
+end
+
 -- The quick menu is built at runtime, so it gets its own geometry snapshot.
 app.ToggleQuickMenu()
 __relayout(app.gui)
@@ -700,6 +895,168 @@ __report(string.format(
 	#VIEWPORTS
 ))
 
+--[[
+	Every button, clicked. The suite above drives the controls it knows about by
+	hand, which is how a callback that read a global (`panel:submit()` above the
+	`local panel` it meant) stayed untested until a player pressed it. This walks
+	the mounted tree instead: every TextButton and ImageButton, whether or not it is
+	visible, repeatedly until no new ones appear - a click that builds a widget (a
+dropdown, a toast action) exposes buttons the next pass then covers too.
+
+	Hidden buttons are included deliberately: a player cannot press them, but the
+	callback still runs in a game that unhides them, and it must not throw. The
+	production button wrapper pcalls OnClick and warns on failure, so "no warnings"
+	is the assertion that a callback reached real code.
+]]
+local clicked = {}
+local warnedBy, violatedBy = {}, {}
+local fired = 0
+
+local function isTeardown(instance)
+	return instance.Name == "UnloadButton" or instance.Name == "Unload"
+end
+
+local function clickAndWatch(instance)
+	clicked[instance] = true
+	fired = fired + 1
+
+	local warnings = #STUB.warnings
+	local violations = #STUB.violations
+	local path = STUB.path(instance)
+
+	instance.MouseButton1Click:Fire()
+	__drain()
+
+	for index = warnings + 1, #STUB.warnings do
+		table.insert(warnedBy, path .. "  ::  " .. STUB.warnings[index])
+	end
+	for index = violations + 1, #STUB.violations do
+		table.insert(violatedBy, path .. "  ::  " .. STUB.violations[index])
+	end
+end
+
+-- The Unload button destroys the whole tree, so it is held back until last.
+local teardown, passes = {}, 0
+
+while passes < 4 do
+	passes = passes + 1
+
+	local batch = {}
+	for _, instance in ipairs(app.gui and app.gui:GetDescendants() or {}) do
+		if isButton(STUB.classOf(instance)) and not clicked[instance] then
+			if isTeardown(instance) then
+				clicked[instance] = true
+				table.insert(teardown, instance)
+			else
+				table.insert(batch, instance)
+			end
+		end
+	end
+
+	if #batch == 0 then
+		break
+	end
+
+	for _, instance in ipairs(batch) do
+		clickAndWatch(instance)
+	end
+end
+
+--[[
+	That pass ignores visibility, which is what makes it exhaustive, but it also
+	means it presses the below-floor notice only while hidden. This second pass
+	walks the states a player can actually be in - every viewport, every tab - and
+	presses the buttons that are *visible* there, once per tab: the notice, the
+	anchor it is replaced by, and the collapsed sidebar tiers are exercised in the
+	state that shows them.
+]]
+local statePressed = {}
+local stateFired, smallStateFired, noticeFired = 0, 0, false
+local perTab = {}
+
+for _, entry in ipairs(VIEWPORTS) do
+	local _, width, height = entry[1], entry[2], entry[3]
+
+	STUB.VIEWPORT = { X = width, Y = height }
+	__drain()
+	__relayout(app.gui)
+
+	for _, tabId in ipairs({ "Chat", "Cowork", "Code" }) do
+		app.dashboard:setTab(tabId)
+		__drain()
+		__relayout(app.gui)
+
+		local seen = statePressed[tabId] or {}
+		statePressed[tabId] = seen
+
+		for _ = 1, 2 do
+			local pressed = 0
+
+			for _, instance in ipairs(app.gui and app.gui:GetDescendants() or {}) do
+				if isButton(STUB.classOf(instance))
+					and not seen[instance]
+					and not isTeardown(instance)
+					and STUB.isVisible(instance) then
+					seen[instance] = true
+					pressed = pressed + 1
+					stateFired = stateFired + 1
+					perTab[tabId] = (perTab[tabId] or 0) + 1
+
+					if instance.Name == "OpenAnyway" then
+						noticeFired = true
+					end
+					if belowFloor(width, height) then
+						smallStateFired = smallStateFired + 1
+					end
+
+					clickAndWatch(instance)
+				end
+			end
+
+			if pressed == 0 then
+				break
+			end
+		end
+	end
+end
+
+-- Back to the baseline the rest of the file assumes, then the one button that
+-- tears the tree down is clicked last of all.
+STUB.VIEWPORT = { X = 1920, Y = 1080 }
+__drain()
+__relayout(app.gui)
+
+for _, instance in ipairs(teardown) do
+	clickAndWatch(instance)
+end
+
+-- Everything clicked outside a tab state: the tree walk plus the Unload button.
+local walkFired = fired - stateFired
+
+__report(string.format("INFO  click sweep: %d buttons in %d passes", walkFired, passes))
+__report(string.format(
+	"INFO  state sweep: %d clicks over %d viewports x 3 tabs (%d stayed visible below the floor)",
+	stateFired,
+	#VIEWPORTS,
+	smallStateFired
+))
+
+check("the click sweep reached a real number of buttons", walkFired > 25, walkFired)
+check("no button callback warned", #warnedBy == 0, summarize(warnedBy))
+check("no button callback touched an invalid member", #violatedBy == 0, summarize(violatedBy))
+check(
+	"every tab had its visible buttons pressed",
+	(perTab.Chat or 0) > 0 and (perTab.Cowork or 0) > 0 and (perTab.Code or 0) > 0,
+	string.format("chat %d, cowork %d, code %d", perTab.Chat or 0, perTab.Cowork or 0, perTab.Code or 0)
+)
+check("buttons that only appear below the floor were pressed", smallStateFired > 0, smallStateFired)
+check("the below-floor notice's own button was pressed", noticeFired == true)
+check(
+	"the sweep ended on the Unload button, which tore the app down",
+	#teardown == 1 and app.gui == nil,
+	string.format("%d unload button(s), gui %s", #teardown, app.gui == nil and "gone" or "still mounted")
+)
+
 -- Unload -----------------------------------------------------------------------
 
 app.Unload()
@@ -708,6 +1065,10 @@ check("unload tears the UI down", app.gui == nil)
 -- Environment health -----------------------------------------------------------
 
 check("no invalid Instance members were assigned", #STUB.violations == 0, table.concat(STUB.violations, " | "))
+-- Warnings are where a swallowed callback failure lands: the production button
+-- runs OnClick inside a pcall and warns on error, so an unwarned suite is the
+-- only proof that every click above reached real code.
+check("no warnings were logged", #STUB.warnings == 0, table.concat(STUB.warnings, " | "))
 check("no errors inside queued tasks or signal handlers", #STUB.taskErrors == 0, table.concat(STUB.taskErrors, " | "))
 
 __report("")

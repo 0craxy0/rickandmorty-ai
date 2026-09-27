@@ -21,10 +21,10 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-
 ```
 
 That always pulls the newest build from `main`. Release tags pin a
-build that never changes - `v1.0.0` is the current one:
+build that never changes - `v1.0.1` is the current one:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.0/dist/rick-morty-executor.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.1/dist/rick-morty-executor.lua"))()
 ```
 
 Tagged builds come from the same `package.json` version, so bumping it and pushing
@@ -50,6 +50,7 @@ src/                 Luau source, one module per concern
                      ChatPanel, CoworkPanel, CodePanel, Tutorial, Dashboard
 bridge/              Cowork payload (Node server + external interface)
 build.js             validator + single-file bundler
+verify-publish.js    confirms the documented install URLs serve this build
 test/                headless smoke test (Roblox stubbed, runs the real bundle)
 dist/                generated rick-morty-executor.lua + install.lua one-liner
 ```
@@ -131,13 +132,17 @@ npm install     # dev dependency for the smoke test only (fengari)
 npm run check   # validate modules only
 npm run build   # validate + emit dist/rick-morty-executor.lua
 npm test        # execute the built bundle against a stubbed Roblox environment
+npm run verify:publish   # check the live install URLs (needs network)
 ```
 
 `build.js` itself is dependency-free and does four things:
 
 1. **Validates** every module — block/bracket balance via a Luau tokenizer
    (comment and string aware), accidental-global detection (`function foo()`
-   without `local`), and `require()` resolution against the module graph.
+   without `local`), reads of a local above its own declaration (which compile to
+   a nil global rather than the forward reference they look like), `app.version`
+   against `package.json` (the console prints it and the pinned URL is named
+   after it), and `require()` resolution against the module graph.
 2. **Inlines** everything under `bridge/` as raw text assets (`bundle/assets`).
 3. **Bundles** the modules behind a tiny `require` registry so the exact same
    source runs unbundled in a dev harness or as one pasteable chunk.
@@ -158,9 +163,60 @@ companion switch, the entire onboarding tour and unload.
 The stub raises the same error Roblox does for any member that is not a real
 property, so a mistake like attaching a helper field to an Instance
 (`frame.TextLabel = label` throws *"TextLabel is not a valid member of Frame"*)
-fails the test rather than failing in game. Because the project is Luau, compound
-assignments are rewritten to their Lua 5.3 equivalent for the test run only; the
-shipped bundle is untouched.
+fails the test rather than failing in game. Members are per-class too, on
+Instances and on the services the bundle talks to: reading a GUI-only property
+such as `AbsoluteSize` from a layout object raises (*"AbsoluteSize is not a valid
+member of UIListLayout"*), and a misspelled `Players.LocalPlayr` raises instead
+of reading nil and quietly taking the "this environment cannot do that" branch.
+`game:GetService("HttpServce")` raises *"HttpServce is not a valid service
+name"* for the same reason — a typo used to conjure a permissive object whose
+every read was nil.
+The UI decoration objects, `Sound`, `ModuleScript`, `Folder`, `ScreenGui`, a
+`Part` a script builds and the rest of the app's own furniture carry their real
+member lists, while classes the executor may create at run time stay permissive.
+Because the project is Luau, compound assignments are rewritten to their Lua 5.3
+equivalent for the test run only; the shipped bundle is untouched.
+
+`loadstring` is backed by the VM's own `load`, so the code the executor compiles
+really runs: the suite asserts the shipped sample builds its part in `Workspace`,
+that a snippet reaches the public API through `getgenv()`, and that a script
+which throws or fails to compile is reported in the console with its message.
+`print` inside an executed script is captured into `STUB.prints` rather than the
+terminal, which is what makes that output assertable.
+
+Then it walks the mounted tree and presses **every** `TextButton` and
+`ImageButton` through its own `MouseButton1Click` — visible or not, repeatedly
+until no new ones appear, so a click that builds a widget (a dropdown, a toast
+action) exposes buttons the next pass covers too. The `Unload` button is held
+back until last, because it tears the tree down. A second sweep then walks all
+nine viewports × three tabs and presses the buttons that are *visible* in each
+state, once per tab, so the below-floor notice, the anchor that replaces it and
+the compact sidebar tiers are exercised while they are on screen rather than
+only while hidden. The run asserts no invalid members, no errors inside signal
+handlers or deferred tasks, and no warnings: the production button wrapper runs
+`OnClick` inside a `pcall` and warns on failure, so a callback that dies silently
+fails the suite by name.
+
+### Publish check
+
+`npm run verify:publish` closes the loop the other commands cannot see: a build
+that is correct on disk but not yet published is still broken for every user,
+because `loadstring` downloads from GitHub at run time. It takes the install
+URLs out of this README's install block - both the `main` one-liner and the
+pinned tag - requests each one, and byte-compares the response with the built
+`dist/rick-morty-executor.lua`, telling these apart:
+
+| What it found | What it means |
+| ------------- | ------------- |
+| `404` | the tag or branch does not have the file yet - push it |
+| differs from `dist/` | the published build is not this build - rebuild and push |
+| differs, but the API at that ref matches | the push is correct and GitHub's raw CDN is holding a stale edge copy - re-run in a few minutes |
+| README block does not match `package.json` | the documented URLs have drifted - `npm run build` |
+
+It needs network access and uses `GITHUB_TOKEN` if one is set (the API lookup
+that distinguishes a stale cache from a bad push is rate limited otherwise).
+The URLs themselves come from `build.js`, so there is no second copy of them to
+keep in sync.
 
 ### Geometry assertions
 

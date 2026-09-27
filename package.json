@@ -1,6 +1,6 @@
 {
   "name": "rick-morty-ai-executor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Rick & Morty themed AI script engine for the Roblox environment.",
   "repository": {
@@ -12,7 +12,8 @@
   "scripts": {
     "build": "node build.js",
     "check": "node build.js --check",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "verify:publish": "node verify-publish.js"
   },
   "devDependencies": {
     "fengari": "^0.1.5"

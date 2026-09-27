@@ -169,7 +169,11 @@ function CodeRunner.execute(text, options)
 	end
 
 	local note = published and "" or "\n(publishing to Workspace failed)"
-	return true, tostring(output) .. note, holder
+
+	-- A chunk with no return value reports nil. Every call site renders an empty
+	-- output as "script finished", so normalising it here is what makes that
+	-- fallback reachable - `tostring(nil)` put a literal "nil" in the console.
+	return true, (output == nil and "" or tostring(output)) .. note, holder
 end
 
 return CodeRunner

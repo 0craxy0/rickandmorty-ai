@@ -28,6 +28,13 @@ function ChatPanel.new(parent, app)
 		Parent = parent,
 	})
 
+	-- Declared up front, before the header controls: their OnClick callbacks call
+	-- back into this table, and a `local` introduced further down the function is
+	-- not visible to a closure defined above it. Those reads then compiled to a
+	-- global lookup - `attempt to index nil with 'clear'` on the first click - so
+	-- the declaration has to precede every callback that uses it.
+	local panel = {}
+
 	-- Header ------------------------------------------------------------------
 
 	local header = Util.create("Frame", {
@@ -280,7 +287,8 @@ function ChatPanel.new(parent, app)
 						app.notify(ok and "Executed" or "Execution failed", tostring(output ~= "" and output or "script finished"))
 					end
 					if app and app.dashboard then
-						app.dashboard:log(ok and ("[executed] " .. tostring(output)) or ("[error] " .. tostring(output)), ok and "ok" or "error")
+						local summary = output ~= "" and tostring(output) or "script finished"
+						app.dashboard:log(ok and ("[executed] " .. summary) or ("[error] " .. tostring(output)), ok and "ok" or "error")
 					end
 				end,
 			})
@@ -311,11 +319,9 @@ function ChatPanel.new(parent, app)
 
 	-- Panel API ---------------------------------------------------------------
 
-	local panel = {
-		frame = frame,
-		transcript = transcript,
-		input = input,
-	}
+	panel.frame = frame
+	panel.transcript = transcript
+	panel.input = input
 
 	function panel:setStatus(text, kind)
 		status.Text = text
