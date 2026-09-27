@@ -87,6 +87,11 @@ function oneLiner(url) {
 
 /* --------------------------------------------------- generated artifacts */
 
+/**
+ * The wording stays tag-agnostic on purpose: build.js only knows package.json, and
+ * a machine that has not fetched tags would otherwise generate a different block
+ * and make `--check` report phantom drift.
+ */
 function renderInstallBlock(urls) {
   return [
     BEGIN_MARK,
@@ -100,12 +105,15 @@ function renderInstallBlock(urls) {
     oneLiner(urls.latest),
     '```',
     '',
-    `That always pulls the newest build from \`${urls.coords.branch}\`. Once a release tag exists`,
-    `(for example \`v${urls.coords.version}\`), this pinned URL never changes:`,
+    `That always pulls the newest build from \`${urls.coords.branch}\`. Release tags pin a`,
+    `build that never changes - \`v${urls.coords.version}\` is the current one:`,
     '',
     '```lua',
     oneLiner(urls.pinned),
     '```',
+    '',
+    `Tagged builds come from the same \`package.json\` version, so bumping it and pushing`,
+    `\`v<version>\` updates this block and the pinned URL together.`,
     '',
     `Prefer to read the source first? Grab [\`dist/${OUT_FILE_NAME}\`](${urls.blobUrl}) and paste it in manually.`,
     '',

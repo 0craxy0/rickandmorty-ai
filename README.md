@@ -20,12 +20,15 @@ Paste this into your executor and run it:
 loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/main/dist/rick-morty-executor.lua"))()
 ```
 
-That always pulls the newest build from `main`. Once a release tag exists
-(for example `v1.0.0`), this pinned URL never changes:
+That always pulls the newest build from `main`. Release tags pin a
+build that never changes - `v1.0.0` is the current one:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.0/dist/rick-morty-executor.lua"))()
 ```
+
+Tagged builds come from the same `package.json` version, so bumping it and pushing
+`v<version>` updates this block and the pinned URL together.
 
 Prefer to read the source first? Grab [`dist/rick-morty-executor.lua`](https://github.com/0craxy0/rickandmorty-ai/blob/main/dist/rick-morty-executor.lua) and paste it in manually.
 
