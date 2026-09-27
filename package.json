@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "description": "Rick & Morty themed AI script engine for the Roblox environment.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0craxy0/rickandmorty-ai.git",
+    "branch": "main"
+  },
+  "homepage": "https://github.com/0craxy0/rickandmorty-ai#readme",
   "scripts": {
     "build": "node build.js",
     "check": "node build.js --check"

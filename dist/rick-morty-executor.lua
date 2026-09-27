@@ -4,6 +4,12 @@
 	Paste the whole chunk into an executor and run it.
 
 	Quick menu : press ';'   |  Dashboard: run RickMortyAI:Open()  |  Unload: RickMortyAI:Unload()
+
+	Install (latest main):
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/main/dist/rick-morty-executor.lua"))()
+	Pinned to v1.0.0:
+		loadstring(game:HttpGet("https://raw.githubusercontent.com/0craxy0/rickandmorty-ai/v1.0.0/dist/rick-morty-executor.lua"))()
+
 ]]
 
 --!nonstrict
